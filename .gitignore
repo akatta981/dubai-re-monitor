@@ -1,0 +1,24 @@
+# Credentials — never commit these
+.env
+
+# Database (contains personal data)
+data/
+
+# Claude Code project settings (personal / machine-specific)
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
