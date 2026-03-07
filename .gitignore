@@ -1,5 +1,9 @@
 # Credentials — never commit these
 .env
+*Token*.txt
+*token*.txt
+*secret*.txt
+*Secret*.txt
 
 # Database (contains personal data)
 data/

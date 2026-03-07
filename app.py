@@ -286,9 +286,27 @@ def area_signal_status(area: str, anomaly_df: pd.DataFrame) -> str:
     return "ok"
 
 
+# ─── Auto-seed (cloud / first run) ───────────────────────────────────────────
+def _ensure_data() -> None:
+    """
+    On Streamlit Cloud the SQLite DB starts empty (data/ is gitignored).
+    Seed mock data automatically so the dashboard is usable on first load.
+    """
+    from db import get_session
+    with get_session() as session:
+        count = session.query(Transaction).count()
+    if count == 0:
+        with st.spinner("⏳ First launch — seeding demo data (about 30 s)…"):
+            from seed_data import seed_database
+            seed_database()
+        st.cache_data.clear()       # flush any caches built on empty DB
+        st.rerun()
+
+
 # ─── Main App ─────────────────────────────────────────────────────────────────
 def main() -> None:
     init_db()
+    _ensure_data()
 
     st.markdown(
         f'<meta http-equiv="refresh" content="{config.DASHBOARD_REFRESH_SECONDS}">',
