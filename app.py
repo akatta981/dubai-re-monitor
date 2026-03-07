@@ -805,29 +805,37 @@ def main() -> None:
                     pills.append(f'<span style="color:{_ac};font-size:0.73rem;">{_at} &nbsp;·&nbsp; {detected_str}</span>')
                     footer_html = " ".join(pills)
 
-                    # -- Card height estimate
-                    tip_rows = max(2, len(broker_tip) // 88)
-                    card_h   = 305 + tip_rows * 21 + (38 if _yoy is not None else 0)
+                    # -- Card height estimate (mobile wraps more → add buffer)
+                    tip_rows = max(2, len(broker_tip) // 72)
+                    card_h   = 330 + tip_rows * 21 + (38 if _yoy is not None else 0)
 
-                    card_html = f"""<html><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                    card_html = f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .stats-grid {{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;padding:0 22px 16px;}}
+  @media(max-width:420px){{
+    .card-header{{flex-direction:column!important;}}
+    .area-title{{font-size:1.05rem!important;}}
+    .broker-box{{padding:11px 12px!important;}}
+  }}
+</style></head><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <div style="background:#0f172a;border-radius:14px;overflow:hidden;border:1px solid #1e293b;box-shadow:0 4px 24px rgba(0,0,0,0.6);">
   <div style="height:4px;background:linear-gradient(90deg,{color},{color}66);"></div>
-  <div style="padding:18px 22px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+  <div class="card-header" style="padding:18px 22px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
     <div>
-      <div style="font-size:1.25rem;font-weight:800;color:#f1f5f9;letter-spacing:-0.4px;">{area}</div>
+      <div class="area-title" style="font-size:1.25rem;font-weight:800;color:#f1f5f9;letter-spacing:-0.4px;">{area}</div>
       <div style="font-size:0.77rem;color:#64748b;margin-top:4px;font-weight:500;">{detected_str}{(' &nbsp;·&nbsp; ' + dev_str) if dev_str else ''}</div>
     </div>
     <div style="background:{color}18;border:1.5px solid {color}44;color:{color};padding:5px 15px;border-radius:20px;font-size:0.76rem;font-weight:700;letter-spacing:0.3px;white-space:nowrap;margin-top:2px;">
       {label}
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat({n_cols},1fr);gap:6px;padding:0 22px 16px;">
+  <div class="stats-grid">
     {stats_cells_html}
   </div>
   <div style="padding:0 22px 16px;">
     <div style="color:#94a3b8;font-size:0.86rem;line-height:1.8;">{explain}</div>
   </div>
-  <div style="margin:0 22px 16px;background:#0c1c33;border-left:3px solid #3b82f6;border-radius:0 10px 10px 0;padding:13px 16px;">
+  <div class="broker-box" style="margin:0 22px 16px;background:#0c1c33;border-left:3px solid #3b82f6;border-radius:0 10px 10px 0;padding:13px 16px;">
     <div style="color:#60a5fa;font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;margin-bottom:9px;">💬 Your Broker Script</div>
     <div style="color:#93c5fd;font-size:0.84rem;line-height:1.8;font-style:italic;">{broker_tip}</div>
   </div>
@@ -1113,19 +1121,27 @@ def main() -> None:
                     f'Data confidence: {_rec["confidence"]} ({_rec["n_transactions"]} txns)</span>'
                 )
 
-                _target_html = f"""<html><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                _target_html = f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  @media(max-width:420px){{
+    .price-hero{{font-size:1.65rem!important;}}
+    .badges{{flex-direction:column!important;}}
+    .factor-table td{{font-size:0.70rem!important;padding:5px 6px 5px 0!important;}}
+    .pad-main{{padding:14px 14px 10px!important;}}
+  }}
+</style></head><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <div style="background:#0f172a;border-radius:14px;overflow:hidden;border:1px solid #1e293b;box-shadow:0 4px 24px rgba(0,0,0,0.5);">
   <div style="height:4px;background:linear-gradient(90deg,{_accent},{_accent}55);"></div>
-  <div style="padding:18px 22px 14px;">
+  <div class="pad-main" style="padding:18px 22px 14px;">
 
     <!-- Header row -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
       <div>
         <div style="color:#64748b;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px;">💡 Expert Buy Target — {chosen_project}</div>
-        <div style="color:{_accent};font-size:2.1rem;font-weight:800;letter-spacing:-0.5px;line-height:1;">AED {_tgt:,.0f}<span style="font-size:0.9rem;font-weight:400;color:#64748b;"> /m²</span></div>
+        <div class="price-hero" style="color:{_accent};font-size:2.1rem;font-weight:800;letter-spacing:-0.5px;line-height:1;">AED {_tgt:,.0f}<span style="font-size:0.9rem;font-weight:400;color:#64748b;"> /m²</span></div>
         <div style="color:#64748b;font-size:0.76rem;margin-top:5px;">&#8722;{_tot_pct:.1f}% vs 30-day DLD avg of AED {_avg_30d:,.0f}/m²</div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+      <div class="badges" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
         {_rental_line}
         {_conf_line}
       </div>
@@ -1134,7 +1150,7 @@ def main() -> None:
     <!-- Factor breakdown table -->
     <div style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;">How this target was calculated</div>
     <div style="background:#0a0f1e;border-radius:8px;padding:10px 14px;margin-bottom:14px;overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;">
+      <table class="factor-table" style="width:100%;border-collapse:collapse;">
         {_factor_rows}
         <tr style="border-top:1px solid #1e293b;">
           <td style="color:#f1f5f9;font-size:0.78rem;font-weight:700;padding:8px 8px 4px 0;">Total discount</td>
