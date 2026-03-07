@@ -253,8 +253,30 @@ AREA_INTEL: dict[str, AreaIntel] = {
             "buy while pre-handover pricing holds."
         ),
         five_yr_outlook=(
-            "Highest upside of all 9 monitored areas (10–15% p.a.) if AMIA timeline holds. "
-            "Best risk-adjusted opportunity under AED 2M for the 2026–2031 horizon."
+            "Highest upside of all 10 monitored areas (10–15% p.a.) if AMIA timeline holds. "
+            "Best risk-adjusted opportunity under AED 3M for the 2026–2031 horizon."
+        ),
+    ),
+    "Dubai Maritime City": AreaIntel(
+        demand_score=7,
+        supply_score=4,
+        rental_yield_pct=6.5,
+        strategic_adj_pct=-1.0,
+        catalyst_note=(
+            "One of Dubai's last remaining prime waterfront development zones — "
+            "only ~7% of Dubai coastline left for development. "
+            "Chelsea Residences by DAMAC (Chelsea FC-branded, Gensler-designed) "
+            "is driving global attention and brand premium to the area. "
+            "Located between Port Rashid and Dubai Dry Docks; pedestrian waterfront "
+            "masterplan underway. 22 min to Downtown, 15 min to City Walk. "
+            "Early mover advantage — resale market is thin, creating potential "
+            "for outsized appreciation once more units transfer on DLD."
+        ),
+        five_yr_outlook=(
+            "High conviction long-term hold (8–12% p.a. appreciation potential). "
+            "Supply is structurally capped by geography. Brand-name projects "
+            "(Chelsea FC, Fairmont) attract HNWI buyers and support pricing floors. "
+            "Watch for DLD resale data post-2027 handovers to confirm thesis."
         ),
     ),
 }

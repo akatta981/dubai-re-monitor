@@ -19,10 +19,11 @@ MONITORED_AREAS: dict[str, list[str]] = {
     "Dubai Hills": ["dubai hills"],
     "Dubai Investment Park 1": ["dubai investment park 1", "dubai investment park first", "investment park first"],
     "Dubai Investment Park 2": ["dubai investment park 2", "dubai investment park second", "investment park second"],
+    "Dubai Maritime City": ["dubai maritime city", "maritime city"],
 }
 
 # ─── Investment Filter ─────────────────────────────────────────────────────────
-MAX_PRICE_AED: int = 2_000_000          # Only flag signals for properties <= this
+MAX_PRICE_AED: int = 3_000_000          # Only flag signals for properties <= this
 MIN_PRICE_AED: int = 300_000            # Filter out obvious data errors
 PROPERTY_TYPES: list[str] = ["apartment", "villa", "townhouse"]  # lowercase match
 

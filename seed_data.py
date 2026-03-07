@@ -25,9 +25,10 @@ AREA_BASELINES = {
     "Dubai Hills":             {"price_sqm": (9_000,  15_000), "daily_vol": (6, 16)},
     "Dubai Investment Park 1": {"price_sqm": (6_000,  10_000), "daily_vol": (3,  9)},
     "Dubai Investment Park 2": {"price_sqm": (7_000,  11_500), "daily_vol": (2,  6)},
+    "Dubai Maritime City":     {"price_sqm": (16_000, 28_000), "daily_vol": (2,  7)},
 }
 
-# Realistic Bayut for-sale listing counts (under AED 2M) per area
+# Realistic Bayut for-sale listing counts (under AED 3M) per area
 AREA_BAYUT_BASELINES = {
     "Downtown Dubai":          (800,  1_200),
     "Palm Jumeirah":           (1_500, 2_200),
@@ -38,6 +39,7 @@ AREA_BAYUT_BASELINES = {
     "Dubai Hills":             (500,   900),
     "Dubai Investment Park 1": (500,   1_000),
     "Dubai Investment Park 2": (300,   700),
+    "Dubai Maritime City":     (150,   400),
 }
 
 PROPERTY_TYPES = ["Apartment", "Apartment", "Apartment", "Villa", "Townhouse"]  # weighted
@@ -145,6 +147,17 @@ AREA_PROJECTS: dict[str, list[tuple[str, str, str]]] = {
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 2"),
         ("Dubai Investment Park 2", "Lush at DAMAC Riverside", "Lush at DAMAC Riverside"),
     ],
+    "Dubai Maritime City": [
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 1"),
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 2"),
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 3"),
+        ("Dubai Maritime City", "Anwa Aria",                "Anwa Aria"),
+        ("Dubai Maritime City", "Fairmont Residences",      "Fairmont Residences Skyline Tower 1"),
+        ("Dubai Maritime City", "Fairmont Residences",      "Fairmont Residences Skyline Tower 2"),
+        ("Dubai Maritime City", "The Crest",                "The Crest Tower A"),
+        ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 1"),
+        ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 2"),
+    ],
 }
 
 # 2026 date range
@@ -168,6 +181,7 @@ AREA_BASELINES_2025 = {
     "Dubai Hills":             {"price_sqm": (8_000,  13_000), "daily_vol": (5, 14)},
     "Dubai Investment Park 1": {"price_sqm": (5_400,   9_000), "daily_vol": (2,  8)},
     "Dubai Investment Park 2": {"price_sqm": (6_300,  10_300), "daily_vol": (1,  5)},
+    "Dubai Maritime City":     {"price_sqm": (13_500, 24_000), "daily_vol": (1,  5)},
 }
 
 tx_counter = 0
