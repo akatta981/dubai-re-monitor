@@ -357,6 +357,65 @@ st.markdown("""
     div[data-testid="stRadio"] > label { display: none !important; }
     /* Hide the radio indicator dot (the 16×16 div before the text) */
     div[role="radiogroup"] label > div:first-child { display: none !important; }
+
+    /* ══════════════════════════════════════════════════════════════════
+     * MOBILE RESPONSIVE — @media ≤ 480px
+     * Keeps desktop layout untouched; only overrides on small screens.
+     * ══════════════════════════════════════════════════════════════════ */
+    @media (max-width: 480px) {
+        /* ── Global: prevent horizontal overflow ─────────────────── */
+        .stApp, [data-testid="stMain"], [data-testid="stMainBlockContainer"],
+        section.main .block-container {
+            max-width: 100vw !important;
+            overflow-x: hidden !important;
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+        }
+
+        /* ── Force Streamlit columns to stack vertically ─────────── */
+        [data-testid="stHorizontalBlock"] {
+            flex-direction: column !important;
+            gap: 8px !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 0 !important;
+        }
+
+        /* ── Header title: smaller on mobile ─────────────────────── */
+        h1 { font-size: 1.4rem !important; }
+        h2 { font-size: 1.15rem !important; }
+        h3, h4 { font-size: 0.95rem !important; }
+
+        /* ── Nav pills: wrap + center ────────────────────────────── */
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            gap: 6px !important;
+        }
+        div[data-testid="stRadio"] label {
+            padding: 6px 14px !important;
+            font-size: 0.75rem !important;
+        }
+
+        /* ── Metric cards: compact ───────────────────────────────── */
+        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
+        div[data-testid="metric-container"] { padding: 10px 12px !important; }
+
+        /* ── DataFrames: horizontal scroll ───────────────────────── */
+        [data-testid="stDataFrame"] {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* ── Expander: full width ────────────────────────────────── */
+        [data-testid="stExpander"] { margin-left: 0 !important; margin-right: 0 !important; }
+
+        /* ── Footer ──────────────────────────────────────────────── */
+        .last-refresh { font-size: 0.65rem !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -867,7 +926,7 @@ def main() -> None:
                 _vc   = "#4ade80" if _vup else "#FF5555"
                 _varr = "↗" if _vup else "↘"
                 _vbadge = (
-                    f'<span style="background:{_vbg};border:1px solid {_vc}33;color:{_vc};'
+                    f'<span class="snap-badge" style="background:{_vbg};border:1px solid {_vc}33;color:{_vc};'
                     f'padding:4px 12px;border-radius:6px;font-size:0.76rem;font-weight:700;">'
                     f'{_varr} {abs(_vpct):.1f}%</span>'
                 )
@@ -882,7 +941,7 @@ def main() -> None:
                 _pc   = "#4ade80" if _pup else "#FF5555"
                 _parr = "↗" if _pup else "↘"
                 _pbadge = (
-                    f'<span style="background:{_pbg};border:1px solid {_pc}33;color:{_pc};'
+                    f'<span class="snap-badge" style="background:{_pbg};border:1px solid {_pc}33;color:{_pc};'
                     f'padding:4px 12px;border-radius:6px;font-size:0.76rem;font-weight:700;">'
                     f'{_parr} {abs(_p7d):.1f}%</span>'
                 )
@@ -904,15 +963,19 @@ def main() -> None:
             )
 
             return (
-                f'<html><head>'
+                f'<html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
                 f'<style>@import url(\'https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800'
-                f'&family=JetBrains+Mono:wght@700&display=swap\');</style>'
+                f'&family=JetBrains+Mono:wght@700&display=swap\');'
+                f'@media(max-width:420px){{.snap-val{{font-size:1.2rem!important;}}'
+                f'.snap-card{{padding:14px 14px!important;}}'
+                f'.snap-badge{{padding:3px 8px!important;font-size:0.7rem!important;}}'
+                f'}}</style>'
                 f'</head><body style="margin:0;padding:4px 2px;background:#050505;'
                 f'font-family:\'Inter\',-apple-system,sans-serif;">'
                 f'<div style="background:#0D0D0D;border-radius:12px;border:{_border};'
                 f'overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.7);">'
                 f'<div style="height:2px;background:linear-gradient(90deg,{_accent},{_accent}11);"></div>'
-                f'<div style="padding:18px 20px 18px;">'
+                f'<div class="snap-card" style="padding:18px 20px 18px;">'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">'
                 f'<span style="font-size:0.95rem;font-weight:700;color:#F0F0F0;letter-spacing:-0.1px;">{_short}</span>'
                 f'{_pulse_svg}'
@@ -921,7 +984,7 @@ def main() -> None:
                 f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
                 f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">VOLUME (24H)</div>'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                f'<span style="font-size:1.65rem;font-weight:800;color:#F0F0F0;'
+                f'<span class="snap-val" style="font-size:1.65rem;font-weight:800;color:#F0F0F0;'
                 f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_vol}</span>'
                 f'{_vbadge}'
                 f'</div></div>'
@@ -930,7 +993,7 @@ def main() -> None:
                 f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
                 f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">PRICE / M²</div>'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                f'<span style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
+                f'<span class="snap-val" style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
                 f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_price_str}</span>'
                 f'{_pbadge}'
                 f'</div></div>'
@@ -939,7 +1002,7 @@ def main() -> None:
                 f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
                 f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">ACTIVE LISTINGS</div>'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                f'<span style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
+                f'<span class="snap-val" style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
                 f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_lists}</span>'
                 f'<span style="background:#1A0000;border:1px solid #FF333344;color:#FF4444;'
                 f'padding:4px 10px;border-radius:6px;font-size:0.62rem;font-weight:700;'
@@ -1248,16 +1311,23 @@ def main() -> None:
 
                     card_html = f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
+  * {{ box-sizing: border-box; }}
   .stats-grid {{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;padding:0 22px 16px;}}
   @media(max-width:420px){{
     .card-header{{flex-direction:column!important;}}
     .area-title{{font-size:1.05rem!important;}}
-    .broker-box{{padding:11px 12px!important;}}
+    .broker-box{{padding:11px 12px!important;margin:0 12px 14px!important;}}
+    .stats-grid{{padding:0 12px 12px!important;grid-template-columns:1fr!important;gap:5px!important;}}
+    .stats-grid > div{{padding:10px 12px!important;}}
+    .card-header-wrap{{padding:14px 14px 10px!important;}}
+    .explain-wrap{{padding:4px 14px 14px!important;}}
+    .footer-wrap{{padding:0 14px 14px!important;}}
+    .footer-wrap span{{font-size:0.7rem!important;}}
   }}
 </style></head><body style="margin:0;padding:6px 2px;background:#050505;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <div style="background:#0D0D0D;border-radius:10px;overflow:hidden;border:1px solid #2A2A2A;box-shadow:0 4px 32px rgba(0,0,0,0.8);">
   <div style="height:3px;background:linear-gradient(90deg,{color},{color}44);"></div>
-  <div class="card-header" style="padding:20px 24px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+  <div class="card-header card-header-wrap" style="padding:20px 24px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
     <div>
       <div class="area-title" style="font-size:1.3rem;font-weight:800;color:#F0F0F0;letter-spacing:-0.4px;font-family:'Inter',sans-serif;">{area}</div>
       <div style="font-size:0.82rem;color:#888;margin-top:5px;font-weight:400;">{detected_str}{(' &nbsp;·&nbsp; ' + dev_str) if dev_str else ''}</div>
@@ -1269,14 +1339,14 @@ def main() -> None:
   <div class="stats-grid">
     {stats_cells_html}
   </div>
-  <div style="padding:4px 24px 18px;">
+  <div class="explain-wrap" style="padding:4px 24px 18px;">
     <div style="color:#BBB;font-size:0.88rem;line-height:1.85;">{explain}</div>
   </div>
   <div class="broker-box" style="margin:0 24px 18px;background:#110900;border-left:3px solid #FF5500;border-radius:0 8px 8px 0;padding:14px 18px;">
     <div style="color:#FF5500;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1.3px;margin-bottom:10px;font-family:'Inter',sans-serif;">💬 YOUR BROKER SCRIPT</div>
     <div style="color:#FFBB88;font-size:0.88rem;line-height:1.85;font-style:italic;">{broker_tip}</div>
   </div>
-  <div style="padding:0 24px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+  <div class="footer-wrap" style="padding:0 24px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
     {footer_html}
   </div>
 </div></body></html>"""
@@ -1600,18 +1670,22 @@ def main() -> None:
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
   * {{ box-sizing: border-box; }}
+  @media(max-width:420px){{
+    .tgt-card{{padding:14px 14px 14px!important;}}
+    .tgt-hero{{font-size:1.8rem!important;}}
+  }}
 </style></head>
 <body style="margin:0;padding:4px 2px 8px;background:#050505;font-family:'Inter',-apple-system,sans-serif;">
 <div style="background:#0D0D0D;border-radius:12px;overflow:hidden;border:1px solid #1E1E1E;box-shadow:0 8px 40px rgba(0,0,0,0.9);">
   <div style="height:2px;background:linear-gradient(90deg,{_accent} 0%,{_accent}66 60%,transparent 100%);"></div>
-  <div style="padding:20px 20px 18px;">
+  <div class="tgt-card" style="padding:20px 20px 18px;">
 
     <!-- Section tag -->
     <div style="color:#444;font-size:0.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">MARKET INTELLIGENCE</div>
 
     <!-- Project + Price hero -->
     <div style="color:#666;font-size:0.72rem;font-weight:500;letter-spacing:0.2px;margin-bottom:6px;">{chosen_project}</div>
-    <div style="color:{_accent};font-size:2.5rem;font-weight:800;letter-spacing:-1.5px;line-height:0.9;font-family:'JetBrains Mono',monospace;">AED {_tgt:,.0f}</div>
+    <div class="tgt-hero" style="color:{_accent};font-size:2.5rem;font-weight:800;letter-spacing:-1.5px;line-height:0.9;font-family:'JetBrains Mono',monospace;">AED {_tgt:,.0f}</div>
     <div style="color:#555;font-size:0.75rem;margin-top:6px;font-family:'JetBrains Mono',monospace;">/m²&nbsp;&nbsp;·&nbsp;&nbsp;&#8722;{_tot_pct:.1f}% vs 30d avg</div>
 
     <!-- Badges -->
