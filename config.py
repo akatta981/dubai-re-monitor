@@ -10,7 +10,7 @@ from __future__ import annotations
 # Keys = display names; values = substrings to match in DLD 'AREA_EN' column
 # DLD data uses varying spellings — we match on substrings (case-insensitive)
 MONITORED_AREAS: dict[str, list[str]] = {
-    "Downtown Dubai": ["downtown"],
+    "Downtown Dubai": ["downtown", "burj khalifa"],
     "Palm Jumeirah": ["palm jumeirah"],
     "Dubai Marina": ["dubai marina", "marina"],
     "JVC/JVT": ["jumeirah village circle", "jumeirah village triangle", "jvc", "jvt"],
@@ -47,22 +47,47 @@ SUPPLY_MA_DAYS: int = 7
 LOOKBACK_DAYS: int = 90               # How far back to pull DLD data
 
 # ─── DLD Data Source ──────────────────────────────────────────────────────────
-# Open data portal — check this URL if fetching breaks
-DLD_BASE_URL: str = "https://www.dubailand.gov.ae/en/open-data/real-estate-data/"
+# Open data JSON API (gateway.dubailand.gov.ae/open-data)
+# Replaced the old CSV scraper — DLD moved to a paginated JSON API in 2025.
+DLD_API_BASE: str = "https://gateway.dubailand.gov.ae/open-data"
+DLD_API_COMMAND: str = "transactions"          # API endpoint for sales data
+DLD_API_PAGE_SIZE: int = 200                   # rows per API page (max 200)
 
-# DLD CSV column names (update here if DLD changes their schema)
+# Maps our internal field names → DLD API JSON keys
+DLD_API_COLUMNS: dict[str, str] = {
+    "transaction_id": "TRANSACTION_NUMBER",
+    "date":           "INSTANCE_DATE",         # ISO format: 2026-01-14T12:42:16
+    "worth":          "TRANS_VALUE",            # total transaction value AED
+    "area_sqm":       "PROCEDURE_AREA",        # property size in sqm
+    "trans_group":    "GROUP_EN",              # e.g. "Sales", "Mortgage"
+    "usage":          "USAGE_EN",              # e.g. "Residential"
+    "location":       "AREA_EN",              # area name
+    "prop_type":      "PROP_TYPE_EN",          # e.g. "Unit", "Villa"
+    "prop_subtype":   "PROP_SB_TYPE_EN",       # e.g. "Flat", "Townhouse"
+    "project":        "PROJECT_EN",            # project + building name
+    "master_project": "MASTER_PROJECT_EN",     # parent community
+    "rooms":          "ROOMS_EN",              # e.g. "2 B/R"
+    "is_offplan":     "IS_OFFPLAN",            # 0 = Ready, 1 = Off-plan
+    "is_freehold":    "IS_FREE_HOLD",          # 0 = Leasehold, 1 = Freehold
+}
+
+# API filter parameter for Sales transactions (GROUP_ID=1)
+DLD_API_SALES_GROUP_ID: str = "1"
+DLD_API_RESIDENTIAL_USAGE_ID: str = "1"
+
+# Legacy CSV column mapping (kept for reference, no longer used by fetcher)
 DLD_COLUMNS = {
-    "date": "Transaction Date",         # format: DD/MM/YYYY
-    "worth": "actual_worth",            # total transaction value AED
-    "area_sqm": "procedure_area",       # area in sqm
-    "trans_group": "trans_group_en",    # e.g. "Sales"
-    "usage": "property_usage_en",       # e.g. "Residential"
-    "location": "AREA_EN",              # area name
-    "prop_type": "type_en",             # e.g. "Apartment", "Villa"
-    "transaction_id": "trans_group_id", # for deduplication
-    "building":       "building_name_en",   # individual tower / block name
-    "project":        "project_name_en",    # sub-development / project name
-    "master_project": "master_project_en",  # parent community / master plan
+    "date": "Transaction Date",
+    "worth": "actual_worth",
+    "area_sqm": "procedure_area",
+    "trans_group": "trans_group_en",
+    "usage": "property_usage_en",
+    "location": "AREA_EN",
+    "prop_type": "type_en",
+    "transaction_id": "trans_group_id",
+    "building":       "building_name_en",
+    "project":        "project_name_en",
+    "master_project": "master_project_en",
 }
 
 # ─── Scheduler ─────────────────────────────────────────────────────────────────

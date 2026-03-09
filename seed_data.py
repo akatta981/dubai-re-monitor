@@ -143,6 +143,7 @@ AREA_PROJECTS: dict[str, list[tuple[str, str, str]]] = {
         ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Olive"),
         ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 1"),
         ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 2"),
+        ("Dubai Investment Park 2", "DAMAC Riverside Views", "Azure 2"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 1"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 2"),
         ("Dubai Investment Park 2", "Lush at DAMAC Riverside", "Lush at DAMAC Riverside"),
