@@ -829,8 +829,8 @@ def main() -> None:
     anomaly_df     = _anomaly_full
 
     if df.empty:
-        st.warning("⚠️ No data in database yet.")
-        st.info("Run `python seed_data.py` in your terminal to load mock data.")
+        st.warning("⚠️ No transactions recorded for the selected areas.")
+        st.info("If this is a fresh install, please use the **ADMIN: OFFICIAL DATA SYNC** tool in the sidebar to fetch real-world data from the Dubai Land Department.")
         return
 
     if not selected_areas:
