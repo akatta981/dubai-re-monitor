@@ -513,7 +513,10 @@ def load_anomaly_log(limit: int = 100) -> pd.DataFrame:
             .all()
         )
         if not rows:
-            return pd.DataFrame()
+            return pd.DataFrame(columns=[
+                "detected_at", "area", "signal_type", "deviation_pct",
+                "signal_value", "baseline_value", "alert_sent", "notes"
+            ])
         return pd.DataFrame([{
             "detected_at":    r.detected_at,
             "area":           r.area_canonical,
@@ -779,19 +782,21 @@ def main() -> None:
 
         # ── DATA SOURCES STATUS BAR ───────────────────────────────────────────
         _fetch = load_fetch_status()
-        _dld   = _fetch.get("dld",   {"status": "unknown"})
-        _bayt  = _fetch.get("bayut", {"status": "unknown"})
+        _dld   = _fetch.get("dld",   {"status": "unknown", "last_fetch": "Never", "rows": 0})
+        _bayt  = _fetch.get("bayut", {"status": "unknown", "last_fetch": "Never", "rows": 0})
         _dld_green  = _dld["status"]  == "success"
         _bayt_green = _bayt["status"] == "success"
         st.markdown(
             f'<div class="status-bar">'
-            f'<div class="status-row">'
+            f'<div class="status-row" title="Last fetch: {_dld["last_fetch"]} ({_dld["rows"]} rows)">'
             f'  <span class="sdot {"sdot-green" if _dld_green else "sdot-amber"}"></span>'
             f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DLD CONNECTED" if _dld_green else "DLD DEMO MODE"}</span>'
+            f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_dld["last_fetch"]}</span>'
             f'</div>'
-            f'<div class="status-row">'
+            f'<div class="status-row" title="Last fetch: {_bayt["last_fetch"]} ({_bayt["rows"]} rows)">'
             f'  <span class="sdot {"sdot-green" if _bayt_green else "sdot-amber"}"></span>'
             f'  <span class="{"slabel-green" if _bayt_green else "slabel-amber"}">{"SCRAPER ACTIVE" if _bayt_green else "SCRAPER PENDING"}</span>'
+            f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_bayt["last_fetch"]}</span>'
             f'</div>'
             f'</div>',
             unsafe_allow_html=True,
