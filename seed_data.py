@@ -26,6 +26,8 @@ AREA_BASELINES = {
     "Dubai Investment Park 1": {"price_sqm": (6_000,  10_000), "daily_vol": (3,  9)},
     "Dubai Investment Park 2": {"price_sqm": (7_000,  11_500), "daily_vol": (2,  6)},
     "Dubai Maritime City":     {"price_sqm": (16_000, 28_000), "daily_vol": (2,  7)},
+    "Dubai South":            {"price_sqm": (8_500,  14_000), "daily_vol": (12, 25)},
+    "DAMAC Riverside":         {"price_sqm": (9_500,  14_500), "daily_vol": (4,  10)},
 }
 
 # Realistic Bayut for-sale listing counts (under AED 3M) per area
@@ -40,6 +42,8 @@ AREA_BAYUT_BASELINES = {
     "Dubai Investment Park 1": (500,   1_000),
     "Dubai Investment Park 2": (300,   700),
     "Dubai Maritime City":     (150,   400),
+    "Dubai South":            (1_000, 2_000),
+    "DAMAC Riverside":         (200,   600),
 }
 
 PROPERTY_TYPES = ["Apartment", "Apartment", "Apartment", "Villa", "Townhouse"]  # weighted
@@ -138,15 +142,9 @@ AREA_PROJECTS: dict[str, list[tuple[str, str, str]]] = {
         ("Dubai Investment Park 1", "The Sustainable City",  "The Sustainable City Cluster A"),
     ],
     "Dubai Investment Park 2": [
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Ivy"),
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Lush"),
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Olive"),
-        ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 1"),
-        ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 2"),
-        ("Dubai Investment Park 2", "DAMAC Riverside Views", "Azure 2"),
+        ("Dubai Investment Park 2", "Green Community",       "Green Community Village"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 1"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 2"),
-        ("Dubai Investment Park 2", "Lush at DAMAC Riverside", "Lush at DAMAC Riverside"),
     ],
     "Dubai Maritime City": [
         ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 1"),
@@ -158,6 +156,26 @@ AREA_PROJECTS: dict[str, list[tuple[str, str, str]]] = {
         ("Dubai Maritime City", "The Crest",                "The Crest Tower A"),
         ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 1"),
         ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 2"),
+    ],
+    "Dubai South": [
+        ("Dubai South", "Azizi Venice",        "Azizi Venice Tower A"),
+        ("Dubai South", "Azizi Venice",        "Azizi Venice Tower B"),
+        ("Dubai South", "Emaar South",         "Expo Golf Villas"),
+        ("Dubai South", "Emaar South",         "Urbana III"),
+        ("Dubai South", "Expo Valley",         "Shamsa Townhouses"),
+        ("Dubai South", "Expo Valley",         "Yasmina Villas"),
+        ("Dubai South", "The Pulse",           "The Pulse Residences"),
+        ("Dubai South", "The Pulse",           "The Pulse Villas"),
+        ("Dubai South", "MAG 5 Boulevard",     "MAG 560"),
+        ("Dubai South", "South Village",       "South Village Block A"),
+    ],
+    "DAMAC Riverside": [
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Marine 1"),
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Marine 2"),
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Azure 2"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Ivy"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Lush"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Olive"),
     ],
 }
 
@@ -183,6 +201,8 @@ AREA_BASELINES_2025 = {
     "Dubai Investment Park 1": {"price_sqm": (5_400,   9_000), "daily_vol": (2,  8)},
     "Dubai Investment Park 2": {"price_sqm": (6_300,  10_300), "daily_vol": (1,  5)},
     "Dubai Maritime City":     {"price_sqm": (13_500, 24_000), "daily_vol": (1,  5)},
+    "Dubai South":            {"price_sqm": (7_500,  12_500), "daily_vol": (10, 20)},
+    "DAMAC Riverside":         {"price_sqm": (8_500,  13_500), "daily_vol": (3,  8)},
 }
 
 tx_counter = 0

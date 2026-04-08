@@ -20,6 +20,8 @@ MONITORED_AREAS: dict[str, list[str]] = {
     "Dubai Investment Park 1": ["dubai investment park 1", "dubai investment park first", "investment park first"],
     "Dubai Investment Park 2": ["dubai investment park 2", "dubai investment park second", "investment park second"],
     "Dubai Maritime City": ["dubai maritime city", "maritime city"],
+    "Dubai South": ["dubai south", "emaar south", "expo city", "expo valley", "azizi venice", "the pulse"],
+    "DAMAC Riverside": ["riverside", "damac riverside"],
 }
 
 # ─── Investment Filter ─────────────────────────────────────────────────────────
