@@ -672,7 +672,7 @@ def _ensure_data() -> None:
 # ─── Main App ─────────────────────────────────────────────────────────────────
 def main() -> None:
     init_db()
-    _ensure_data()
+    # _ensure_data()  # Disabled to prevent mock data injection
 
     # ── Session state: selected areas ─────────────────────────────────────────
     if "selected_areas" not in st.session_state:
@@ -755,23 +755,41 @@ def main() -> None:
 
         st.divider()
 
+        # ── OFFICIAL DATA SYNC ───────────────────────────────────────────────
+        with st.expander("🛠️ ADMIN: OFFICIAL DATA SYNC"):
+            st.warning("This will PURGE all mock/local records and fetch the last 90 days of official DLD data.")
+            if st.button("🔥 PURGE & SYNC OFFICIAL DATA", use_container_width=True):
+                with st.spinner("Purging tables..."):
+                    from db import purge_all_data
+                    purge_all_data()
+                
+                with st.spinner("Fetching official DLD data (90 days)..."):
+                    from data_fetcher import fetch_dld_transactions
+                    n_new = fetch_dld_transactions(lookback_days=90)
+                
+                with st.spinner("Processing signals..."):
+                    from anomaly_detector import run_detection_pipeline
+                    signals = run_detection_pipeline()
+                
+                st.cache_data.clear()
+                st.success(f"Sync Complete! {n_new} official records fetched. {len(signals)} signals detected.")
+                st.rerun()
+
         # ── SIMULATION ────────────────────────────────────────────────────────
-        with st.expander("⚡ SIMULATION / TRIGGER EVENT"):
-            st.caption("Re-run the full detection pipeline on the current dataset.")
+        with st.expander("⚡ RE-RUN PIPELINE"):
+            st.caption("Scan the existing local dataset for new signals.")
             alert_email    = st.toggle("Email alerts",    value=True, key="sim_email")
             alert_whatsapp = st.toggle("WhatsApp alerts", value=True, key="sim_wa")
-            if st.button("▶ Run pipeline", use_container_width=True):
+            if st.button("▶ Run detection", use_container_width=True):
                 with st.spinner("Running…"):
-                    from data_fetcher import fetch_dld_transactions
                     from anomaly_detector import run_detection_pipeline
                     from alerts import send_alerts
-                    n_new   = fetch_dld_transactions()
                     signals = run_detection_pipeline()
                     if signals:
                         channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
                         send_alerts(signals, channels=channels)
                     st.cache_data.clear()
-                st.success(f"{n_new} new rows · {len(signals)} signals")
+                st.success(f"Analysis complete · {len(signals)} signals")
             if st.button("📧 Test alert", use_container_width=True, key="sim_test"):
                 from alerts import test_alerts
                 with st.spinner("Sending…"):

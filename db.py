@@ -197,3 +197,10 @@ def upsert_daily_metric(session: Session, record: dict) -> None:
         existing.updated_at = datetime.utcnow()
     else:
         session.add(DailyMetric(**record))
+
+
+def purge_all_data() -> None:
+    """Drop and recreate all tables to remove all mock data."""
+    Base.metadata.drop_all(engine)
+    init_db()
+    logger.info("All database tables purged and recreated.")
