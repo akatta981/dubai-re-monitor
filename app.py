@@ -832,7 +832,7 @@ def main() -> None:
     anomaly_df = anomaly_df[anomaly_df["area"].isin(selected_areas)]
 
     latest_by_area = df.sort_values("date").groupby("area").last().reset_index()
-    latest_date    = df["date"].max().strftime("%d %B %Y")
+    latest_date    = df["date"].max().strftime("%d %B %Y") if not df.empty else "N/A"
 
     # ── Pre-compute area trends (used in Snapshot cards + Buy Signals tab) ────
     _p2025_data: dict[str, float] = load_2025_avg_price()
