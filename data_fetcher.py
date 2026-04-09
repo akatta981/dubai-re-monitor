@@ -101,11 +101,11 @@ def _fetch_dld_page(
     payload = {
         "P_FROM_DATE": from_date,
         "P_TO_DATE": to_date,
-        "P_GROUP_ID": config.DLD_API_SALES_GROUP_ID,
+        "P_GROUP_ID": "",  # API filter broken, filtering locally
         "P_IS_OFFPLAN": "",
         "P_IS_FREE_HOLD": "",
         "P_AREA_ID": area_id,
-        "P_USAGE_ID": config.DLD_API_RESIDENTIAL_USAGE_ID,
+        "P_USAGE_ID": "",  # API filter broken, filtering locally
         "P_PROP_TYPE_ID": "",
         "P_TAKE": str(config.DLD_API_PAGE_SIZE),
         "P_SKIP": str(skip),
@@ -165,13 +165,16 @@ def _api_row_to_record(row: dict) -> Optional[dict]:
 
     # ── Price filter ─────────────────────────────────────────────────────
     worth = row.get(col["worth"])
-    if worth is None:
-        return None
     try:
-        worth = float(worth)
+        worth = float(worth) if worth is not None else 0.0
     except (ValueError, TypeError):
         return None
-    if worth < config.MIN_PRICE_AED or worth > config.MAX_PRICE_AED:
+    if worth < config.MIN_PRICE_AED:
+        return None
+
+    # ── Group filter ─────────────────────────────────────────────────────
+    # Locally filter to just Sales and Residential since API filters are unreliable
+    if row.get(col["trans_group"]) != "Sales":
         return None
 
     # ── Area in sqm ──────────────────────────────────────────────────────
@@ -215,8 +218,10 @@ def _paginate_area(
     all_rows: list[dict] = []
     skip = 0
     total = None
+    pages_fetched = 0
+    max_pages = 2
 
-    while True:
+    while pages_fetched < max_pages:
         page_rows, page_total = _fetch_dld_page(
             http, from_date, to_date, area_id=area_id, skip=skip,
         )
