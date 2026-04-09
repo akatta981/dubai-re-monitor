@@ -55,7 +55,12 @@ def _resolve_area_ids(http: requests.Session) -> dict[str, list[str]]:
     resp = http.post(url, json={}, timeout=30)
     resp.raise_for_status()
 
-    areas = resp.json().get("response", {}).get("result", [])
+    data = resp.json()
+    areas = data.get("response", {}).get("result")
+    if areas is None:
+        areas = data.get("result")
+    if areas is None:
+        areas = data if isinstance(data, list) else []
     mapping: dict[str, list[str]] = {}
 
     for entry in areas:
@@ -109,8 +114,21 @@ def _fetch_dld_page(
     resp.raise_for_status()
 
     data = resp.json()
-    rows = data.get("response", {}).get("result", [])
-    total = rows[0].get("TOTAL", 0) if rows else 0
+    
+    # Robust extraction: try nested then falling back to direct list
+    rows = data.get("response", {}).get("result")
+    if rows is None:
+        rows = data.get("result")
+    if rows is None:
+        rows = data if isinstance(data, list) else []
+        
+    # Get total count (DLD usually includes this in every row or as a sibling)
+    total = data.get("response", {}).get("total_records")
+    if total is None:
+        total = rows[0].get("TOTAL_RECORDS") if rows else 0
+    if total is None:
+        total = rows[0].get("TOTAL", 0) if rows else 0
+        
     return rows, total
 
 

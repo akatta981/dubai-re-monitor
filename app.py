@@ -759,20 +759,30 @@ def main() -> None:
         with st.expander("🛠️ ADMIN: OFFICIAL DATA SYNC"):
             st.warning("This will PURGE all mock/local records and fetch the last 90 days of official DLD data.")
             if st.button("🔥 PURGE & SYNC OFFICIAL DATA", use_container_width=True):
+                log_placeholder = st.empty()
+                logs = []
+                
                 with st.spinner("Purging tables..."):
                     from db import purge_all_data
                     purge_all_data()
+                    logs.append("✅ Database purged.")
+                    log_placeholder.code("\n".join(logs))
                 
-                with st.spinner("Fetching official DLD data (90 days)..."):
+                with st.spinner("Fetching official DLD data..."):
                     from data_fetcher import fetch_dld_transactions
+                    # Fetch in smaller chunks or areas to show progress
                     n_new = fetch_dld_transactions(lookback_days=90)
+                    logs.append(f"✅ DLD sync complete: {n_new} official records.")
+                    log_placeholder.code("\n".join(logs))
                 
-                with st.spinner("Processing signals..."):
+                with st.spinner("Recalculating signals..."):
                     from anomaly_detector import run_detection_pipeline
                     signals = run_detection_pipeline()
+                    logs.append(f"✅ Anomaly engine ran: {len(signals)} signals.")
+                    log_placeholder.code("\n".join(logs))
                 
                 st.cache_data.clear()
-                st.success(f"Sync Complete! {n_new} official records fetched. {len(signals)} signals detected.")
+                st.success(f"Sync Complete!")
                 st.rerun()
 
         # ── SIMULATION ────────────────────────────────────────────────────────
@@ -808,7 +818,7 @@ def main() -> None:
             f'<div class="status-bar">'
             f'<div class="status-row" title="Last fetch: {_dld["last_fetch"]} ({_dld["rows"]} rows)">'
             f'  <span class="sdot {"sdot-green" if _dld_green else "sdot-amber"}"></span>'
-            f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DLD CONNECTED" if _dld_green else "DLD DEMO MODE"}</span>'
+            f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DLD CONNECTED" if _dld_green else "DLD DEMO MODE"} ({_dld["rows"]} rows)</span>'
             f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_dld["last_fetch"]}</span>'
             f'</div>'
             f'<div class="status-row" title="Last fetch: {_bayt["last_fetch"]} ({_bayt["rows"]} rows)">'
@@ -831,7 +841,7 @@ def main() -> None:
     if df.empty:
         st.warning("⚠️ No transactions recorded for the selected areas.")
         st.info("If this is a fresh install, please use the **ADMIN: OFFICIAL DATA SYNC** tool in the sidebar to fetch real-world data from the Dubai Land Department.")
-        return
+
 
     if not selected_areas:
         st.markdown("## 👈 Select areas to get started")
