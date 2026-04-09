@@ -320,7 +320,7 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> int:
             error_message=error_msg,
         ))
 
-    return rows_inserted
+    return rows_inserted, (error_msg or "")
 
 
 # ─── Bayut Scraper ────────────────────────────────────────────────────────────
