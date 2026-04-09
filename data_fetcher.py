@@ -101,11 +101,11 @@ def _fetch_dld_page(
     payload = {
         "P_FROM_DATE": from_date,
         "P_TO_DATE": to_date,
-        "P_GROUP_ID": config.DLD_API_SALES_GROUP_ID,
+        "P_GROUP_ID": "",  # API filter broken, filtering locally
         "P_IS_OFFPLAN": "",
         "P_IS_FREE_HOLD": "",
         "P_AREA_ID": area_id,
-        "P_USAGE_ID": config.DLD_API_RESIDENTIAL_USAGE_ID,
+        "P_USAGE_ID": "",  # API filter broken, filtering locally
         "P_PROP_TYPE_ID": "",
         "P_TAKE": str(config.DLD_API_PAGE_SIZE),
         "P_SKIP": str(skip),
@@ -123,6 +123,9 @@ def _fetch_dld_page(
         rows = data.get("result")
     if rows is None:
         rows = data if isinstance(data, list) else []
+        
+    print(f"DEBUG: Fetched area {area_id}. Extracted {len(rows)} rows.")
+
         
     # Get total count (DLD usually includes this in every row or as a sibling)
     total = data.get("response", {}).get("total_records")
@@ -249,8 +252,8 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> int:
         # Build date range
         cutoff = datetime.utcnow().date() - timedelta(days=lookback_days)
         today = datetime.utcnow().date()
-        from_date = cutoff.strftime("%d/%m/%Y")
-        to_date = today.strftime("%d/%m/%Y")
+        from_date = cutoff.strftime("%m/%d/%Y")
+        to_date = today.strftime("%m/%d/%Y")
 
         logger.info(
             "Fetching DLD transactions via API: %s to %s (lookback %d days)",
