@@ -841,6 +841,7 @@ def main() -> None:
     if df.empty:
         st.warning("⚠️ No transactions recorded for the selected areas.")
         st.info("If this is a fresh install, please use the **ADMIN: OFFICIAL DATA SYNC** tool in the sidebar to fetch real-world data from the Dubai Land Department.")
+        st.stop()
 
 
     if not selected_areas:

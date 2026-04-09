@@ -64,8 +64,10 @@ def _resolve_area_ids(http: requests.Session) -> dict[str, list[str]]:
     mapping: dict[str, list[str]] = {}
 
     for entry in areas:
-        name_en = entry.get("NAME_EN", "")
+        # Check both potential official name keys
+        name_en = entry.get("NAME_EN") or entry.get("AREA_EN", "")
         area_id = entry.get("AREA_ID", "")
+        
         canonical = canonicalise_area(name_en)
         if canonical is not None and area_id:
             mapping.setdefault(canonical, []).append(area_id)
