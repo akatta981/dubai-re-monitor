@@ -771,8 +771,11 @@ def main() -> None:
                 with st.spinner("Fetching official DLD data..."):
                     from data_fetcher import fetch_dld_transactions
                     # Fetch in smaller chunks or areas to show progress
-                    n_new = fetch_dld_transactions(lookback_days=90)
-                    logs.append(f"✅ DLD sync complete: {n_new} official records.")
+                    n_new, err = fetch_dld_transactions(lookback_days=90)
+                    if err:
+                        logs.append(f"❌ DLD API Blocked: {err}")
+                    else:
+                        logs.append(f"✅ DLD sync complete: {n_new} official records.")
                     log_placeholder.code("\n".join(logs))
                 
                 with st.spinner("Recalculating signals..."):

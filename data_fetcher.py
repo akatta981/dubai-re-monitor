@@ -101,16 +101,19 @@ def _fetch_dld_page(
     payload = {
         "P_FROM_DATE": from_date,
         "P_TO_DATE": to_date,
-        "P_GROUP_ID": "",  # API filter broken, filtering locally
+        "P_GROUP_ID": config.DLD_API_SALES_GROUP_ID,
         "P_IS_OFFPLAN": "",
         "P_IS_FREE_HOLD": "",
         "P_AREA_ID": area_id,
-        "P_USAGE_ID": "",  # API filter broken, filtering locally
+        "P_USAGE_ID": config.DLD_API_RESIDENTIAL_USAGE_ID,
         "P_PROP_TYPE_ID": "",
         "P_TAKE": str(config.DLD_API_PAGE_SIZE),
         "P_SKIP": str(skip),
         "P_SORT": "",
     }
+
+    import json
+    print(f"DEBUG PAYLOAD: {json.dumps(payload)}")
 
     resp = http.post(url, json=payload, timeout=30)
     resp.raise_for_status()
