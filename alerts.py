@@ -217,6 +217,15 @@ def send_alerts(
 
     if channels is None:
         channels = ["email", "whatsapp"]
+    if not channels:
+        logger.info("No alert channels selected — nothing sent")
+        return {}
+
+    if record:
+        from db import db_is_mock_only
+        if db_is_mock_only():
+            logger.warning("Database holds only DEMO data — %d alert(s) NOT sent", len(signals))
+            return {}
 
     results: dict[str, bool] = {}
 

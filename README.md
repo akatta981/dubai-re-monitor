@@ -152,6 +152,8 @@ The mock data always ends **today**: it covers this year so far (at least the la
 a simulated "market stress" period, so you will see buy signals to test with.
 You can also load it from the dashboard: sidebar → **🛠️ ADMIN: OFFICIAL DATA SYNC**
 → **🧪 Load demo data**. The status bar shows **DEMO DATA (not real)** while it is in use.
+While only demo data is loaded, signals are detected but **no real email/WhatsApp
+alerts are sent** (the "Test alert" button still works so you can check your setup).
 
 To switch to live DLD data, click **🔥 PURGE & SYNC OFFICIAL DATA** in the same
 sidebar panel, or from a terminal:

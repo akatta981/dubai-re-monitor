@@ -19,10 +19,9 @@ import logging
 import random
 from datetime import date, datetime, timedelta
 
-from data_fetcher import MOCK_ID_PREFIX
 from db import (
-    AnomalyLog, DailyMetric, Transaction,
-    get_session, init_db, upsert_transaction,
+    MOCK_ID_PREFIX, AnomalyLog, DailyMetric, Transaction,
+    db_is_mock_only, get_session, init_db, upsert_transaction,
 )
 
 logger = logging.getLogger(__name__)
@@ -391,9 +390,16 @@ def clear_mock_data() -> int:
 
 def seed_database() -> None:
     """Seed DB with mock data across all areas for the full date range."""
-    global tx_counter
+    global tx_counter, START_DATE, END_DATE, STRESS_START, STRESS_END, START_DATE_2025, END_DATE_2025
     random.seed(42)  # reproducible, even when called repeatedly in one process
     tx_counter = 0
+
+    # Recompute the windows now: a long-running Streamlit server may have
+    # imported this module days ago, and the demo data must end *today*.
+    w = mock_date_windows()
+    START_DATE, END_DATE = w["start"], w["end"]
+    STRESS_START, STRESS_END = w["stress_start"], w["stress_end"]
+    START_DATE_2025, END_DATE_2025 = w["prev_start"], w["prev_end"]
 
     init_db()
     removed = clear_mock_data()
@@ -437,17 +443,6 @@ def seed_database() -> None:
         print("  📊 No signals in mock data (market looks stable)")
 
     print("\nDone! Run: streamlit run app.py")
-
-
-def db_is_mock_only() -> bool:
-    """True if every transaction in the DB is seeded mock data (or the DB is empty)."""
-    with get_session() as session:
-        real = (
-            session.query(Transaction)
-            .filter(~Transaction.transaction_id.like(f"{MOCK_ID_PREFIX}%"))
-            .count()
-        )
-    return real == 0
 
 
 if __name__ == "__main__":

@@ -488,7 +488,9 @@ def load_daily_metrics(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame([{
             "date":           r.metric_date,
             "area":           r.area_canonical,
-            "volume":         r.transaction_volume,
+            # A row with no DLD sales aggregated yet (only a Bayut count) means
+            # "sales unknown", not "0 sales" — older DBs stored 0 for these.
+            "volume":         r.transaction_volume if r.total_worth is not None else None,
             "price_sqm":      r.avg_price_sqm,
             "total_worth":    r.total_worth,
             "median_price":   r.median_price,
@@ -698,7 +700,7 @@ def main() -> None:
     )
 
     # ── Demo vs real data ─────────────────────────────────────────────────────
-    from seed_data import db_is_mock_only
+    from db import db_is_mock_only
     _demo_allowed = db_is_mock_only()          # no real DLD rows in the DB
     with SessionLocal() as _s:
         _has_rows = _s.query(Transaction.id).first() is not None
@@ -788,7 +790,11 @@ def main() -> None:
                 with st.spinner("Fetching official DLD data (can take a few minutes)…"):
                     from data_fetcher import fetch_dld_transactions
                     n_new, err = fetch_dld_transactions(lookback_days=90)
-                if err:
+                if err and n_new:
+                    logs.append(f"⚠️ DLD sync stopped part-way: {n_new} new official records saved "
+                                f"(demo data removed). Some areas may be incomplete — run sync again. "
+                                f"Reason: {err}")
+                elif err:
                     logs.append(f"❌ DLD fetch failed — existing data kept. Reason: {err}")
                 else:
                     logs.append(f"✅ DLD sync complete: {n_new} new official records.")
@@ -819,13 +825,15 @@ def main() -> None:
             st.caption("Scan the existing local dataset for new signals.")
             alert_email    = st.toggle("Email alerts",    value=True, key="sim_email")
             alert_whatsapp = st.toggle("WhatsApp alerts", value=True, key="sim_wa")
+            if _demo_mode:
+                st.caption("🧪 Demo data — signals are detected but **no real alerts are sent**.")
             if st.button("▶ Run detection", width="stretch"):
                 with st.spinner("Running…"):
                     from anomaly_detector import run_detection_pipeline
                     from alerts import send_alerts
                     signals = run_detection_pipeline()
-                    if signals:
-                        channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
+                    channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
+                    if signals and channels and not _demo_mode:
                         send_alerts(signals, channels=channels)
                     st.cache_data.clear()
                 st.success(f"Analysis complete · {len(signals)} new signals")

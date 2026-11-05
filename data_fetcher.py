@@ -21,7 +21,10 @@ import requests
 from bs4 import BeautifulSoup
 
 import config
-from db import AnomalyLog, DailyMetric, FetchLog, Transaction, get_session, init_db, upsert_transaction
+from db import (
+    MOCK_ID_PREFIX, AnomalyLog, DailyMetric, FetchLog, Transaction,
+    get_session, init_db, upsert_transaction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +45,6 @@ def canonicalise_area(raw_area: str) -> Optional[str]:
 
 
 # ─── Mock-data clean-up ──────────────────────────────────────────────────────
-
-MOCK_ID_PREFIX = "MOCK-"   # must match the IDs written by seed_data.py
-
 
 def purge_mock_data() -> int:
     """
@@ -256,11 +256,16 @@ def _paginate_area(
         if not page_rows:
             break
         if total is None:
-            total = page_total or 0
+            try:
+                total = int(page_total or 0)
+            except (TypeError, ValueError):
+                total = 0
         all_rows.extend(page_rows)
         skip += len(page_rows)
-        if skip >= total:
+        if total > 0 and skip >= total:
             break
+        if total <= 0 and len(page_rows) < config.DLD_API_PAGE_SIZE:
+            break   # total unknown: a short page means we reached the end
     else:
         logger.warning(
             "DLD area %s: stopped after %d pages (%d rows) — raise "
@@ -340,12 +345,14 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> tuple[i
             "DLD fetch complete: downloaded %d rows, inserted %d new transactions",
             total_downloaded, rows_inserted,
         )
-        if rows_inserted:
-            purge_mock_data()
-
     except Exception as e:
         error_msg = str(e)
         logger.error("DLD fetch failed: %s", e, exc_info=True)
+    finally:
+        # Rows are committed area by area, so even a fetch that failed part-way
+        # may have stored real data — never leave it mixed with demo data.
+        if rows_inserted:
+            purge_mock_data()
 
     # Log fetch attempt
     with get_session() as session:
