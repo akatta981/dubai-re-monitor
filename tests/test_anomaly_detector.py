@@ -100,15 +100,15 @@ def test_price_per_sqm_zero_area():
 
 # ─── Test: price filter ───────────────────────────────────────────────────────
 
-def test_price_filter_under_2m():
-    """Properties under 2M AED should pass filter."""
+def test_price_filter_under_cap():
+    """Properties under the AED 3M cap should pass filter."""
     price = 1_800_000
     assert config.MIN_PRICE_AED <= price <= config.MAX_PRICE_AED
 
 
-def test_price_filter_over_2m():
-    """Properties over 2M AED should be filtered out."""
-    price = 2_500_000
+def test_price_filter_over_cap():
+    """Properties over the AED 3M cap should be filtered out."""
+    price = 3_500_000
     assert not (config.MIN_PRICE_AED <= price <= config.MAX_PRICE_AED)
 
 
@@ -127,7 +127,7 @@ def test_config_thresholds_range():
 
 
 def test_config_max_price():
-    assert config.MAX_PRICE_AED == 2_000_000
+    assert config.MAX_PRICE_AED == 3_000_000
 
 
 def test_config_areas_populated():

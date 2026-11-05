@@ -8,19 +8,23 @@ from __future__ import annotations
 
 # ─── Areas to Monitor ──────────────────────────────────────────────────────────
 # Keys = display names; values = substrings to match in DLD 'AREA_EN' column
-# DLD data uses varying spellings — we match on substrings (case-insensitive)
+# DLD data uses varying spellings — we match on substrings (case-insensitive).
+# DLD's official area names often differ from marketing names, e.g.
+# Dubai Marina = "Marsa Dubai", JVC = "Al Barsha South Fourth",
+# Dubai Hills = "Hadaeq Sheikh Mohammed Bin Rashid", Downtown = "Burj Khalifa".
 MONITORED_AREAS: dict[str, list[str]] = {
     "Downtown Dubai": ["downtown", "burj khalifa"],
     "Palm Jumeirah": ["palm jumeirah"],
-    "Dubai Marina": ["dubai marina", "marina"],
-    "JVC/JVT": ["jumeirah village circle", "jumeirah village triangle", "jvc", "jvt"],
+    "Dubai Marina": ["dubai marina", "marina", "marsa dubai"],
+    "JVC/JVT": ["jumeirah village circle", "jumeirah village triangle", "jvc", "jvt",
+                "al barsha south fourth", "al barsha south fifth"],
     "Business Bay": ["business bay"],
     "Arabian Ranches": ["arabian ranches"],
-    "Dubai Hills": ["dubai hills"],
+    "Dubai Hills": ["dubai hills", "hadaeq sheikh mohammed bin rashid"],
     "Dubai Investment Park 1": ["dubai investment park 1", "dubai investment park first", "investment park first"],
     "Dubai Investment Park 2": ["dubai investment park 2", "dubai investment park second", "investment park second"],
-    "Dubai Maritime City": ["dubai maritime city", "maritime city"],
-    "Dubai South": ["dubai south", "emaar south", "expo city", "expo valley", "azizi venice", "the pulse", "dubai world central", "dwc"],
+    "Dubai Maritime City": ["dubai maritime city", "maritime city", "madinat dubai almelaheyah"],
+    "Dubai South": ["dubai south", "madinat al mataar", "emaar south", "expo city", "expo valley", "azizi venice", "the pulse", "dubai world central", "dwc"],
     "DAMAC Riverside": ["riverside", "damac riverside"],
 }
 
@@ -54,6 +58,9 @@ LOOKBACK_DAYS: int = 90               # How far back to pull DLD data
 DLD_API_BASE: str = "https://gateway.dubailand.gov.ae/open-data"
 DLD_API_COMMAND: str = "transactions"          # API endpoint for sales data
 DLD_API_PAGE_SIZE: int = 200                   # rows per API page (max 200)
+DLD_API_MAX_PAGES_PER_AREA: int = 10          # safety cap per area (10 × 200 = 2,000 rows)
+                                               # lower = faster sync, but busy areas
+                                               # (e.g. JVC) may get incomplete volumes
 
 # Maps our internal field names → DLD API JSON keys
 DLD_API_COLUMNS: dict[str, str] = {

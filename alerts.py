@@ -200,10 +200,15 @@ def send_whatsapp_alert(signals: list[dict]) -> bool:
 
 # ─── Combined Dispatcher ──────────────────────────────────────────────────────
 
-def send_alerts(signals: list[dict], channels: Optional[list[str]] = None) -> dict[str, bool]:
+def send_alerts(
+    signals: list[dict],
+    channels: Optional[list[str]] = None,
+    record: bool = True,
+) -> dict[str, bool]:
     """
     Send alerts across configured channels.
     channels: list of "email" and/or "whatsapp" (default: both)
+    record:   update anomaly_log with the delivery result (False for test alerts)
     Returns dict of {channel: success_bool}.
     """
     if not signals:
@@ -221,7 +226,10 @@ def send_alerts(signals: list[dict], channels: Optional[list[str]] = None) -> di
     if "whatsapp" in channels:
         results["whatsapp"] = send_whatsapp_alert(signals)
 
-    # Mark alerts as sent in DB
+    if not record:
+        return results
+
+    # Record delivery result in DB (alert_sent only if at least one channel worked)
     from db import AnomalyLog, get_session
     with get_session() as session:
         for signal in signals:
@@ -236,15 +244,26 @@ def send_alerts(signals: list[dict], channels: Optional[list[str]] = None) -> di
                 .first()
             )
             if recent and not recent.alert_sent:
-                recent.alert_sent = True
                 sent_channels = [k for k, v in results.items() if v]
+                recent.alert_sent = bool(sent_channels)
                 recent.alert_channel = "+".join(sent_channels) if sent_channels else "failed"
 
     return results
 
 
-def test_alerts() -> None:
-    """Send a test alert to verify credentials are working."""
+def configured_channels() -> list[str]:
+    """Return the alert channels that have credentials set in the environment."""
+    channels = []
+    if os.getenv("SMTP_USER") and os.getenv("SMTP_PASS"):
+        channels.append("email")
+    if all(os.getenv(v) for v in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+                                  "TWILIO_WHATSAPP_FROM", "TWILIO_WHATSAPP_TO")):
+        channels.append("whatsapp")
+    return channels
+
+
+def test_alerts(channels: Optional[list[str]] = None) -> dict[str, bool]:
+    """Send a test alert to verify credentials are working. Does not touch the signal log."""
     test_signal = {
         "area": "Downtown Dubai",
         "signal_type": "STRONG_BUY",
@@ -255,12 +274,13 @@ def test_alerts() -> None:
         "notes": "TEST ALERT — This is a test from Dubai RE Monitor setup",
     }
     print("Sending test alerts...")
-    results = send_alerts([test_signal])
+    results = send_alerts([test_signal], channels=channels, record=False)
     for channel, ok in results.items():
         status = "✅ Sent" if ok else "❌ Failed"
         print(f"  {channel}: {status}")
     if not results:
         print("  No channels configured — check your .env file")
+    return results
 
 
 if __name__ == "__main__":

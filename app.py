@@ -532,8 +532,9 @@ def load_anomaly_log(limit: int = 100) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600)
-def load_2025_avg_price() -> dict[str, float]:
-    """Load full-year 2025 average DLD sale price per m² per area (for YoY comparison)."""
+def load_2025_avg_price(year: int | None = None) -> dict[str, float]:
+    """Load the previous calendar year's average DLD sale price per m² per area (for YoY)."""
+    year = year or PREV_YEAR
     from datetime import date
     from sqlalchemy import func
     session = SessionLocal()
@@ -544,8 +545,8 @@ def load_2025_avg_price() -> dict[str, float]:
                 func.avg(Transaction.price_per_sqm).label("avg_price"),
             )
             .filter(
-                Transaction.transaction_date >= date(2025, 1, 1),
-                Transaction.transaction_date <= date(2025, 12, 31),
+                Transaction.transaction_date >= date(year, 1, 1),
+                Transaction.transaction_date <= date(year, 12, 31),
                 Transaction.price_per_sqm.isnot(None),
             )
             .group_by(Transaction.area_canonical)
@@ -652,6 +653,19 @@ def area_signal_status(area: str, anomaly_df: pd.DataFrame) -> str:
     return "ok"
 
 
+# ─── HTML card renderer (works across Streamlit versions) ─────────────────────
+def render_html_card(html: str, height: int, scrolling: bool = False) -> None:
+    """Render a self-contained HTML card in an iframe.
+    Uses st.iframe on newer Streamlit; falls back to components.html on older."""
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:
+        components.html(html, height=height, scrolling=scrolling)
+
+
+PREV_YEAR: int = datetime.utcnow().year - 1   # YoY baseline = previous calendar year
+
+
 # ─── Auto-seed (cloud / first run) ───────────────────────────────────────────
 def _ensure_data() -> None:
     """
@@ -683,6 +697,13 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
+    # ── Demo vs real data ─────────────────────────────────────────────────────
+    from seed_data import db_is_mock_only
+    _demo_allowed = db_is_mock_only()          # no real DLD rows in the DB
+    with SessionLocal() as _s:
+        _has_rows = _s.query(Transaction.id).first() is not None
+    _demo_mode = _demo_allowed and _has_rows   # currently showing demo data
+
     # ── Pre-load anomaly log (needed by sidebar signal icons) ─────────────────
     _anomaly_full = load_anomaly_log()
 
@@ -705,11 +726,11 @@ def main() -> None:
 
         _sa_cols = st.columns(2)
         with _sa_cols[0]:
-            if st.button("Select All", key="sel_all", use_container_width=True):
+            if st.button("Select All", key="sel_all", width="stretch"):
                 st.session_state.selected_areas = list(config.MONITORED_AREAS.keys())
                 st.rerun()
         with _sa_cols[1]:
-            if st.button("Clear", key="sel_clear", use_container_width=True):
+            if st.button("Clear", key="sel_clear", width="stretch"):
                 st.session_state.selected_areas = []
                 st.rerun()
 
@@ -723,7 +744,7 @@ def main() -> None:
             if st.button(
                 f"{_dot}{_short}",
                 key=f"area_{_area}",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if _is_active else "secondary",
             ):
                 if _is_active:
@@ -757,43 +778,48 @@ def main() -> None:
 
         # ── OFFICIAL DATA SYNC ───────────────────────────────────────────────
         with st.expander("🛠️ ADMIN: OFFICIAL DATA SYNC"):
-            st.warning("This will PURGE all mock/local records and fetch the last 90 days of official DLD data.")
-            if st.button("🔥 PURGE & SYNC OFFICIAL DATA", use_container_width=True):
-                log_placeholder = st.empty()
-                logs = []
-                
-                with st.spinner("Purging tables..."):
-                    from db import purge_all_data
-                    purge_all_data()
-                    logs.append("✅ Database purged.")
-                    log_placeholder.code("\n".join(logs))
-                
-                with st.spinner("Fetching official DLD data..."):
+            st.caption(
+                "Fetches the last 90 days of official DLD data. Demo data is removed "
+                "automatically once real records arrive. If the DLD connection fails, "
+                "your existing data is kept."
+            )
+            if st.button("🔥 PURGE & SYNC OFFICIAL DATA", width="stretch"):
+                logs: list[str] = []
+                with st.spinner("Fetching official DLD data (can take a few minutes)…"):
                     from data_fetcher import fetch_dld_transactions
-                    # Fetch in smaller chunks or areas to show progress
                     n_new, err = fetch_dld_transactions(lookback_days=90)
-                    if err:
-                        logs.append(f"❌ DLD API Blocked: {err}")
-                    else:
-                        logs.append(f"✅ DLD sync complete: {n_new} official records.")
-                    log_placeholder.code("\n".join(logs))
-                
+                if err:
+                    logs.append(f"❌ DLD fetch failed — existing data kept. Reason: {err}")
+                else:
+                    logs.append(f"✅ DLD sync complete: {n_new} new official records.")
                 with st.spinner("Recalculating signals..."):
                     from anomaly_detector import run_detection_pipeline
                     signals = run_detection_pipeline()
-                    logs.append(f"✅ Anomaly engine ran: {len(signals)} signals.")
-                    log_placeholder.code("\n".join(logs))
-                
+                    logs.append(f"✅ Anomaly engine ran: {len(signals)} new signals.")
                 st.cache_data.clear()
-                st.success(f"Sync Complete!")
+                st.session_state["sync_log"] = "\n".join(logs)
                 st.rerun()
+            if st.session_state.get("sync_log"):
+                st.code(st.session_state["sync_log"])
+
+            st.divider()
+            st.caption("No DLD access yet? Load realistic **demo data** (ends today) to test the dashboard.")
+            if st.button("🧪 Load demo data", width="stretch", key="load_demo",
+                         disabled=not _demo_allowed):
+                from seed_data import seed_database
+                with st.spinner("Generating demo data (about 30 s)…"):
+                    seed_database()
+                st.cache_data.clear()
+                st.rerun()
+            if not _demo_allowed:
+                st.caption("Disabled — your database already holds real DLD data.")
 
         # ── SIMULATION ────────────────────────────────────────────────────────
         with st.expander("⚡ RE-RUN PIPELINE"):
             st.caption("Scan the existing local dataset for new signals.")
             alert_email    = st.toggle("Email alerts",    value=True, key="sim_email")
             alert_whatsapp = st.toggle("WhatsApp alerts", value=True, key="sim_wa")
-            if st.button("▶ Run detection", use_container_width=True):
+            if st.button("▶ Run detection", width="stretch"):
                 with st.spinner("Running…"):
                     from anomaly_detector import run_detection_pipeline
                     from alerts import send_alerts
@@ -802,12 +828,20 @@ def main() -> None:
                         channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
                         send_alerts(signals, channels=channels)
                     st.cache_data.clear()
-                st.success(f"Analysis complete · {len(signals)} signals")
-            if st.button("📧 Test alert", use_container_width=True, key="sim_test"):
-                from alerts import test_alerts
-                with st.spinner("Sending…"):
-                    test_alerts()
-                st.success("Sent — check logs")
+                st.success(f"Analysis complete · {len(signals)} new signals")
+            if st.button("📧 Test alert", width="stretch", key="sim_test"):
+                from alerts import configured_channels, test_alerts
+                wanted = [c for c, on in (("email", alert_email), ("whatsapp", alert_whatsapp))
+                          if on and c in configured_channels()]
+                if not wanted:
+                    st.warning("No alert channel is set up. Add your Gmail / Twilio "
+                               "details to the `.env` file.")
+                else:
+                    with st.spinner("Sending…"):
+                        results = test_alerts(channels=wanted)
+                    for ch, ok in results.items():
+                        (st.success if ok else st.error)(
+                            f"{ch.title()}: {'sent ✅' if ok else 'failed ❌ — check terminal log'}")
 
         st.divider()
 
@@ -815,13 +849,13 @@ def main() -> None:
         _fetch = load_fetch_status()
         _dld   = _fetch.get("dld",   {"status": "unknown", "last_fetch": "Never", "rows": 0})
         _bayt  = _fetch.get("bayut", {"status": "unknown", "last_fetch": "Never", "rows": 0})
-        _dld_green  = _dld["status"]  == "success"
+        _dld_green  = _dld["status"]  == "success" and not _demo_mode
         _bayt_green = _bayt["status"] == "success"
         st.markdown(
             f'<div class="status-bar">'
             f'<div class="status-row" title="Last fetch: {_dld["last_fetch"]} ({_dld["rows"]} rows)">'
             f'  <span class="sdot {"sdot-green" if _dld_green else "sdot-amber"}"></span>'
-            f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DLD CONNECTED" if _dld_green else "DLD DEMO MODE"} ({_dld["rows"]} rows)</span>'
+            f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DEMO DATA (not real)" if _demo_mode else ("DLD CONNECTED" if _dld_green else "DLD NOT CONNECTED")} ({_dld["rows"]} rows)</span>'
             f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_dld["last_fetch"]}</span>'
             f'</div>'
             f'<div class="status-row" title="Last fetch: {_bayt["last_fetch"]} ({_bayt["rows"]} rows)">'
@@ -843,7 +877,11 @@ def main() -> None:
 
     if df.empty:
         st.warning("⚠️ No transactions recorded for the selected areas.")
-        st.info("If this is a fresh install, please use the **ADMIN: OFFICIAL DATA SYNC** tool in the sidebar to fetch real-world data from the Dubai Land Department.")
+        st.info(
+            "Open **🛠️ ADMIN: OFFICIAL DATA SYNC** in the sidebar and click "
+            "**PURGE & SYNC** to fetch real Dubai Land Department data — or "
+            "**🧪 Load demo data** to try the dashboard with realistic test data."
+        )
         st.stop()
 
 
@@ -1054,13 +1092,15 @@ def main() -> None:
             _snap_cols = st.columns(len(_pair))
             for _sc, _area in zip(_snap_cols, _pair):
                 with _sc:
-                    components.html(_snapshot_card_html(_area), height=272, scrolling=False)
+                    render_html_card(_snapshot_card_html(_area), height=272)
 
     elif _nav == "Trends":
-        # Stress-period shading (used on both charts)
-        stress_start = pd.Timestamp("2026-02-15")
-        stress_end   = pd.Timestamp("2026-02-25")
-        show_stress  = df["date"].min() <= stress_end and df["date"].max() >= stress_start
+        # Stress-period shading — demo data only (the seed simulates a dip
+        # over the last few days of the data)
+        from seed_data import STRESS_DAYS
+        stress_end   = df["date"].max()
+        stress_start = stress_end - pd.Timedelta(days=STRESS_DAYS - 1)
+        show_stress  = _demo_mode
 
         col_l, col_r = st.columns(2)
 
@@ -1099,7 +1139,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
-            st.plotly_chart(fig_vol, use_container_width=True)
+            st.plotly_chart(fig_vol, width="stretch")
 
         with col_r:
             st.subheader("Average Price per m² (AED)")
@@ -1137,7 +1177,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
-            st.plotly_chart(fig_price, use_container_width=True)
+            st.plotly_chart(fig_price, width="stretch")
 
         if df["listings"].notna().any():
             st.subheader("Active Listings on Bayut")
@@ -1159,7 +1199,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
             )
-            st.plotly_chart(fig_supply, use_container_width=True)
+            st.plotly_chart(fig_supply, width="stretch")
 
     elif _nav == "Signals":
         if anomaly_df.empty:
@@ -1329,7 +1369,7 @@ def main() -> None:
                         pills.append(
                             f'<span style="background:#1A1A1A;border:1px solid #333;color:{_yc};'
                             f'padding:5px 13px;border-radius:20px;font-size:0.78rem;font-weight:600;white-space:nowrap;">'
-                            f'📈 {_ya} {abs(_yoy):.1f}% vs 2025</span>'
+                            f'📈 {_ya} {abs(_yoy):.1f}% vs {PREV_YEAR}</span>'
                         )
                     if _p7d is not None and _p7d < 0 and _l7d is not None and _l7d > 0:
                         pills.append(
@@ -1395,7 +1435,7 @@ def main() -> None:
                     _sig_cols = st.columns(len(_pair))
                     for _sc, (_chtml, _ch) in zip(_sig_cols, _pair):
                         with _sc:
-                            components.html(_chtml, height=_ch, scrolling=False)
+                            render_html_card(_chtml, height=_ch)
 
             st.divider()
 
@@ -1450,7 +1490,7 @@ def main() -> None:
                     xaxis=dict(tickangle=-45, tickfont=dict(size=10), side="bottom"),
                     yaxis=dict(tickfont=dict(size=11), autorange="reversed"),
                 )
-                st.plotly_chart(fig_cal, use_container_width=True)
+                st.plotly_chart(fig_cal, width="stretch")
 
             except Exception as e:
                 import traceback
@@ -1505,7 +1545,7 @@ def main() -> None:
             xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
         )
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, width="stretch")
 
         st.divider()
         st.subheader("Full Area Summary")
@@ -1529,12 +1569,12 @@ def main() -> None:
             "Sale Price / m² (today, DLD)":    src["price_sqm"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—"),
             "Avg Sale Price / m² (30d, DLD)":  src["price_sqm_ma30"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—"),
             "Bayut For-Sale Listings":         src["listings"].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—"),
-            "2025 Avg Sale Price / m² (DLD)":  src["p2025"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "— (no data)"),
-            "YoY vs 2025 (30d avg)":           src["yoy_pct"].apply(
+            f"{PREV_YEAR} Avg Sale Price / m² (DLD)":  src["p2025"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "— (no data)"),
+            f"YoY vs {PREV_YEAR} (30d avg)":           src["yoy_pct"].apply(
                 lambda x: f"{'▲' if x >= 0 else '▼'} {abs(x):.1f}%" if pd.notna(x) else "—"
             ),
         })
-        st.dataframe(out, use_container_width=True, hide_index=True)
+        st.dataframe(out, width="stretch", hide_index=True)
 
         # ── Project Deep-Dive ─────────────────────────────────────────────────
         st.divider()
@@ -1765,7 +1805,7 @@ def main() -> None:
 </body></html>"""
 
                 with _dd_right:
-                    components.html(_target_html, height=640, scrolling=True)
+                    render_html_card(_target_html, height=640, scrolling=True)
 
                 with _dd_left:
                     # Price over time chart (orange filled)
@@ -1804,14 +1844,14 @@ def main() -> None:
                         xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                         yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                     )
-                    st.plotly_chart(fig_proj, use_container_width=True)
+                    st.plotly_chart(fig_proj, width="stretch")
 
                     # Building breakdown
                     bldg_counts = proj_df["building_name"].value_counts().reset_index()
                     bldg_counts.columns = ["Building", "Transactions"]
                     if len(bldg_counts) > 1:
                         st.caption("Transactions by building:")
-                        st.dataframe(bldg_counts, use_container_width=True, hide_index=True)
+                        st.dataframe(bldg_counts, width="stretch", hide_index=True)
 
                     # Raw transactions
                     with st.expander(f"📋 Raw DLD transactions ({n_tx} rows)"):
@@ -1821,7 +1861,7 @@ def main() -> None:
                         display_df["Price/m² (AED)"] = display_df["Price/m² (AED)"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
                         display_df["Total (AED)"]    = display_df["Total (AED)"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—")
                         display_df["Size (m²)"]      = display_df["Size (m²)"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(display_df, width="stretch", hide_index=True)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     st.divider()

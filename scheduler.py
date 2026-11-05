@@ -13,18 +13,21 @@ import signal
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 
 load_dotenv()
+LOG_PATH = Path(__file__).parent / "data" / "scheduler.log"
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)   # works from any folder / fresh clone
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("data/scheduler.log", encoding="utf-8"),
+        logging.FileHandler(LOG_PATH, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -46,8 +49,8 @@ def run_full_cycle() -> None:
     logger.info("─── Cycle start: %s ───", datetime.utcnow().isoformat())
 
     try:
-        new_rows = fetch_dld_transactions()
-        logger.info("DLD: %d new transactions", new_rows)
+        new_rows, err = fetch_dld_transactions()
+        logger.info("DLD: %d new transactions%s", new_rows, f" (error: {err})" if err else "")
     except Exception as e:
         logger.error("DLD fetch error (continuing): %s", e)
 
