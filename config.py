@@ -60,6 +60,12 @@ SUPPLY_SURGE_THRESHOLD: float = 0.10   # 10% listing surge triggers alert
 # Combined signal: flag as STRONG BUY if both volume drop AND price dip fire
 STRONG_BUY_REQUIRES_BOTH: bool = True
 
+# Signal sanity rules
+SIGNAL_SKIP_TODAY: bool = True             # today's DLD data is incomplete until the day ends
+SIGNAL_SKIP_WEEKEND_VOLUME: bool = True    # Sat/Sun always have fewer registrations
+WEEKEND_DAYS: tuple[int, ...] = (5, 6)     # Monday=0 … Saturday=5, Sunday=6 (UAE weekend)
+SIGNAL_MIN_SALES_FOR_PRICE: int = 5        # a price dip needs at least this many sales that day
+
 # ─── Rolling Window Sizes ──────────────────────────────────────────────────────
 VOLUME_MA_DAYS: int = 7
 PRICE_MA_DAYS: int = 30

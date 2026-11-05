@@ -243,7 +243,10 @@ def detect_anomalies() -> list[dict]:
         area_df = df[df["area"] == area].sort_values("date", ascending=False)
         if area_df.empty:
             continue
-        dld_rows = area_df[area_df["has_dld"]]
+        # Only complete days: DLD keeps registering today's sales until the day
+        # ends, so a part-day always looks like a collapse in volume.
+        complete = area_df["date"] < today if config.SIGNAL_SKIP_TODAY else True
+        dld_rows = area_df[area_df["has_dld"] & complete]
         supply_rows = area_df[area_df["listings"].notna()]
         latest = dld_rows.iloc[0] if not dld_rows.empty else None
         latest_supply = supply_rows.iloc[0] if not supply_rows.empty else None
@@ -256,6 +259,8 @@ def detect_anomalies() -> list[dict]:
         vol_ma = latest["volume_ma7"] if latest is not None else None
         if (
             pd.notna(vol) and pd.notna(vol_ma) and vol_ma > 0
+            and not (config.SIGNAL_SKIP_WEEKEND_VOLUME
+                     and pd.Timestamp(signal_date).weekday() in config.WEEKEND_DAYS)
             and vol < config.VOLUME_DROP_THRESHOLD * vol_ma
         ):
             deviation = (vol - vol_ma) / vol_ma * 100
@@ -278,6 +283,7 @@ def detect_anomalies() -> list[dict]:
         price_ma = latest["price_sqm_ma30"] if latest is not None else None
         if (
             pd.notna(price) and pd.notna(price_ma) and price_ma > 0
+            and pd.notna(vol) and vol >= config.SIGNAL_MIN_SALES_FOR_PRICE
             and price < config.PRICE_DIP_THRESHOLD * price_ma
         ):
             deviation = (price - price_ma) / price_ma * 100
