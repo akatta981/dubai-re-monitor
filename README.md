@@ -207,6 +207,22 @@ without re-downloading.
 
 ---
 
+## Keep the Website's Data (snapshot)
+
+Streamlit Cloud wipes the website's database whenever the app sleeps or restarts.
+Publish your PC's data to GitHub and the website loads it automatically:
+
+```powershell
+python snapshot.py publish     # after a sync or history download on your PC
+```
+
+The website loads the newest snapshot whenever its database is empty; to pick up a
+new one immediately, click **📥 Load latest data snapshot** in its ADMIN panel.
+A fresh PC can load it too: `python snapshot.py load`. Only public DLD sales are
+exported — no settings or passwords.
+
+---
+
 ## Run with Docker (optional)
 
 Requires Docker Desktop. Data is kept in a Docker volume between runs.

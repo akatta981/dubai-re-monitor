@@ -138,6 +138,13 @@ DECISION_GOOD_READY_SALES: int = 100       # this many = high confidence
 # registration/trustee/mortgage fees ~1%.
 DECISION_ROUND_TRIP_COST_PCT: float = 9.0
 
+# ─── Data snapshot (snapshot.py) ───────────────────────────────────────────────
+# The website loads this when its database is empty (Streamlit Cloud wipes it on
+# every restart). Published from your PC with: python snapshot.py publish
+SNAPSHOT_URL: str = (
+    "https://raw.githubusercontent.com/akatta981/dubai-re-monitor/main/snapshot/transactions.csv.gz"
+)
+
 # ─── Scheduler ─────────────────────────────────────────────────────────────────
 FETCH_INTERVAL_MINUTES: int = 15       # How often to refresh data
 ALERT_COOLDOWN_HOURS: int = 6          # Don't re-alert same signal within this window
