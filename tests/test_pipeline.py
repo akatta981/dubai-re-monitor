@@ -158,14 +158,15 @@ def _api_row(**over):
     return row
 
 
-def test_api_row_filters_sales_residential_and_price_cap():
+def test_api_row_filters_sales_residential_and_price_floor():
     import config
     from data_fetcher import _api_row_to_record
 
     assert _api_row_to_record(_api_row())["area_canonical"] == "Dubai Marina"
     assert _api_row_to_record(_api_row(GROUP_EN="Mortgage")) is None
     assert _api_row_to_record(_api_row(USAGE_EN="Commercial")) is None
-    assert _api_row_to_record(_api_row(TRANS_VALUE=config.MAX_PRICE_AED + 1)) is None
+    # Above the cap is stored (the cap is applied at analysis time) …
+    assert _api_row_to_record(_api_row(TRANS_VALUE=config.MAX_PRICE_AED + 1)) is not None
     assert _api_row_to_record(_api_row(TRANS_VALUE=config.MIN_PRICE_AED - 1)) is None
     assert _api_row_to_record(_api_row(AREA_EN="Al Barsha")) is None
 
@@ -207,3 +208,67 @@ def test_paginate_area_stops_when_all_rows_fetched(monkeypatch):
 def test_official_dld_area_names(dld_name, expected):
     from data_fetcher import canonicalise_area
     assert canonicalise_area(dld_name) == expected
+
+
+
+# ─── History download / analysis cap / off-plan ──────────────────────────────
+
+def test_date_chunks_cover_range_without_gaps():
+    from data_fetcher import _date_chunks
+    chunks = _date_chunks(date(2025, 1, 1), date(2025, 3, 1), 15)
+    assert chunks[0][0] == date(2025, 1, 1) and chunks[-1][1] == date(2025, 3, 1)
+    for (a_start, a_end), (b_start, _) in zip(chunks, chunks[1:]):
+        assert b_start == a_end + timedelta(days=1)
+
+
+@pytest.mark.parametrize("raw,label", [
+    ({"IS_OFFPLAN": 1}, "Off-plan"), ({"IS_OFFPLAN": "0"}, "Ready"),
+    ({"IS_OFFPLAN_EN": "Off-Plan"}, "Off-plan"), ({"IS_OFFPLAN_EN": "Ready"}, "Ready"), ({}, None),
+])
+def test_offplan_label(raw, label):
+    from data_fetcher import _offplan_label
+    assert _offplan_label(raw) == label
+
+
+def test_history_download_uses_date_slices(memory_db, monkeypatch):
+    import data_fetcher
+    seen_ranges = []
+    monkeypatch.setattr(data_fetcher, "_resolve_area_ids", lambda http: {"Dubai Marina": ["A-1"]})
+
+    def fake_paginate(http, f, t, area_id):
+        seen_ranges.append((f, t))
+        return [_api_row(TRANSACTION_NUMBER=f"T-{f}", INSTANCE_DATE=f"{f[6:]}-{f[:2]}-{f[3:5]}T10:00:00",
+                         IS_OFFPLAN="1")]
+    monkeypatch.setattr(data_fetcher, "_paginate_area", fake_paginate)
+
+    n, err = data_fetcher.fetch_dld_transactions(start=date(2025, 1, 1), end=date(2025, 1, 31), chunk_days=7)
+    assert err == "" and n == 5 and len(seen_ranges) == 5
+    assert seen_ranges[0] == ("01/01/2025", "01/08/2025")      # one day overlap
+    with db.get_session() as s:
+        assert {t.is_offplan for t in s.query(db.Transaction).all()} == {"Off-plan"}
+
+
+def test_redownload_fills_missing_offplan(memory_db):
+    with db.get_session() as s:
+        db.upsert_transaction(s, {"transaction_id": "X1", "transaction_date": date.today(),
+                                  "actual_worth": 1e6, "procedure_area": 80.0})
+    with db.get_session() as s:
+        assert db.upsert_transaction(s, {"transaction_id": "X1", "transaction_date": date.today(),
+                                         "actual_worth": 1e6, "procedure_area": 80.0,
+                                         "is_offplan": "Ready"}) is False
+    with db.get_session() as s:
+        assert s.query(db.Transaction).one().is_offplan == "Ready"
+
+
+def test_analysis_excludes_sales_above_cap(memory_db):
+    import config
+    from anomaly_detector import aggregate_daily_metrics
+    with db.get_session() as s:
+        for i, worth in enumerate([1_000_000, 1_500_000, config.MAX_PRICE_AED + 500_000]):
+            db.upsert_transaction(s, {"transaction_id": f"C{i}", "transaction_date": date.today(),
+                                      "actual_worth": float(worth), "procedure_area": 100.0,
+                                      "area_canonical": "Dubai Marina"})
+    aggregate_daily_metrics()
+    with db.get_session() as s:
+        m = s.query(db.DailyMetric).one()
+        assert m.transaction_volume == 2 and m.avg_price_sqm == pytest.approx(12_500)

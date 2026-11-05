@@ -254,7 +254,7 @@ AREA_INTEL: dict[str, AreaIntel] = {
         ),
         five_yr_outlook=(
             "Highest upside of all 10 monitored areas (10–15% p.a.) if AMIA timeline holds. "
-            "Best risk-adjusted opportunity under AED 3M for the 2026–2031 horizon."
+            "Best risk-adjusted opportunity under AED 2M for the 2026–2031 horizon."
         ),
     ),
     "Dubai Maritime City": AreaIntel(

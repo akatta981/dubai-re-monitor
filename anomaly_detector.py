@@ -40,6 +40,10 @@ def aggregate_daily_metrics() -> None:
             session.query(Transaction)
             .filter(Transaction.transaction_date >= cutoff)
             .filter(Transaction.area_canonical.isnot(None))
+            # price cap applied here too, so a change in config.py takes effect
+            # on data that was downloaded under an older cap
+            .filter(Transaction.actual_worth >= config.MIN_PRICE_AED)
+            .filter(Transaction.actual_worth <= config.MAX_PRICE_AED)
             .all()
         )
 

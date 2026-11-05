@@ -44,7 +44,7 @@ AREA_BASELINES = {
     "DAMAC Riverside":         {"price_sqm": (9_500,  14_500), "daily_vol": (4,  10)},
 }
 
-# Realistic Bayut for-sale listing counts (under AED 3M) per area
+# Realistic Bayut for-sale listing counts (under AED 2M) per area
 AREA_BAYUT_BASELINES = {
     "Downtown Dubai":          (800,  1_200),
     "Palm Jumeirah":           (1_500, 2_200),
