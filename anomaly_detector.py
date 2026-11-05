@@ -167,16 +167,29 @@ def refresh_supply_data() -> None:
 
 # ─── Step 4: Detect anomalies ─────────────────────────────────────────────────
 
-def _already_alerted(area: str, signal_type: str, within_hours: int = config.ALERT_COOLDOWN_HOURS) -> bool:
-    """Check if this signal already fired recently (dedup guard)."""
+def _already_alerted(
+    area: str,
+    signal_type: str,
+    within_hours: int = config.ALERT_COOLDOWN_HOURS,
+    signal_date: date | None = None,
+) -> bool:
+    """
+    Dedup guard. True if this signal fired within the cooldown window, or was
+    already logged for the same data day (so a stale DLD day does not
+    re-alert every few hours until newer data arrives).
+    """
+    from sqlalchemy import or_
     cutoff = datetime.utcnow() - timedelta(hours=within_hours)
+    conds = [AnomalyLog.detected_at >= cutoff]
+    if signal_date is not None:
+        conds.append(AnomalyLog.signal_date == signal_date)
     with get_session() as session:
         count = (
             session.query(AnomalyLog)
             .filter(
                 AnomalyLog.area_canonical == area,
                 AnomalyLog.signal_type == signal_type,
-                AnomalyLog.detected_at >= cutoff,
+                or_(*conds),
             )
             .count()
         )
@@ -249,7 +262,7 @@ def detect_anomalies() -> list[dict]:
                 "deviation_pct": deviation,
                 "notes": f"Volume {vol:.0f} is {abs(deviation):.1f}% below 7-day MA of {vol_ma:.1f}",
             }
-            if not _already_alerted(area, "VOLUME_DROP"):
+            if not _already_alerted(area, "VOLUME_DROP", signal_date=signal_date):
                 volume_signals.append("VOLUME_DROP")
                 new_signals.append(signal)
                 _log_anomaly(signal)
@@ -271,7 +284,7 @@ def detect_anomalies() -> list[dict]:
                 "deviation_pct": deviation,
                 "notes": f"Avg AED/sqm {price:.0f} is {abs(deviation):.1f}% below 30-day MA of {price_ma:.0f}",
             }
-            if not _already_alerted(area, "PRICE_DIP"):
+            if not _already_alerted(area, "PRICE_DIP", signal_date=signal_date):
                 price_signals.append("PRICE_DIP")
                 new_signals.append(signal)
                 _log_anomaly(signal)
@@ -293,7 +306,7 @@ def detect_anomalies() -> list[dict]:
                 "deviation_pct": deviation,
                 "notes": f"Bayut listings {listings:.0f} is {deviation:.1f}% above 7-day MA of {supply_ma:.1f}",
             }
-            if not _already_alerted(area, "SUPPLY_SURGE"):
+            if not _already_alerted(area, "SUPPLY_SURGE", signal_date=latest_supply["date"]):
                 new_signals.append(signal)
                 _log_anomaly(signal)
 
@@ -308,7 +321,7 @@ def detect_anomalies() -> list[dict]:
                 "deviation_pct": None,
                 "notes": f"STRONG BUY: Both volume drop AND price dip detected in {area}",
             }
-            if not _already_alerted(area, "STRONG_BUY"):
+            if not _already_alerted(area, "STRONG_BUY", signal_date=signal_date):
                 new_signals.append(signal)
                 _log_anomaly(signal)
 

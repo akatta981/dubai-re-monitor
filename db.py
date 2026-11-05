@@ -79,7 +79,7 @@ class DailyMetric(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     metric_date = Column(Date, nullable=False, index=True)
     area_canonical = Column(String(64), nullable=False, index=True)
-    transaction_volume = Column(Integer, default=0)
+    transaction_volume = Column(Integer, nullable=True)   # None = no DLD sales data yet
     avg_price_sqm = Column(Float, nullable=True)
     total_worth = Column(Float, nullable=True)
     median_price = Column(Float, nullable=True)
@@ -197,6 +197,25 @@ def upsert_daily_metric(session: Session, record: dict) -> None:
         existing.updated_at = datetime.utcnow()
     else:
         session.add(DailyMetric(**record))
+
+
+MOCK_ID_PREFIX = "MOCK-"   # transaction IDs written by seed_data.py
+
+
+def db_is_mock_only() -> bool:
+    """True if every transaction in the DB is seeded mock data (or the DB is empty).
+    Rows without a transaction ID count as real data."""
+    from sqlalchemy import or_
+    with get_session() as session:
+        real = (
+            session.query(Transaction.id)
+            .filter(or_(
+                Transaction.transaction_id.is_(None),
+                ~Transaction.transaction_id.like(f"{MOCK_ID_PREFIX}%"),
+            ))
+            .first()
+        )
+    return real is None
 
 
 def purge_all_data() -> None:
