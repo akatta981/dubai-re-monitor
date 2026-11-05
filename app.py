@@ -17,7 +17,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import config
-from db import AnomalyLog, DailyMetric, FetchLog, SessionLocal, Transaction, init_db
+from db import AnomalyLog, DailyMetric, FetchLog, SessionLocal, Transaction, analysis_conditions, init_db
 from market_intelligence import get_buy_recommendation, MACRO_SUMMARY, AREA_INTEL
 
 load_dotenv()
@@ -549,8 +549,7 @@ def load_2025_avg_price(year: int | None = None) -> dict[str, float]:
             .filter(
                 Transaction.transaction_date >= date(year, 1, 1),
                 Transaction.transaction_date <= date(year, 12, 31),
-                Transaction.actual_worth >= config.MIN_PRICE_AED,
-                Transaction.actual_worth <= config.MAX_PRICE_AED,
+                *analysis_conditions(),
                 Transaction.price_per_sqm.isnot(None),
             )
             .group_by(Transaction.area_canonical)
@@ -600,8 +599,7 @@ def load_project_transactions(project: str, days: int = 90) -> pd.DataFrame:
             .filter(
                 Transaction.project_name == project,
                 Transaction.transaction_date >= cutoff,
-                Transaction.actual_worth >= config.MIN_PRICE_AED,
-                Transaction.actual_worth <= config.MAX_PRICE_AED,
+                *analysis_conditions(),
             )
             .order_by(Transaction.transaction_date)
             .all()

@@ -172,10 +172,10 @@ mixed. (`seed_data.py` refuses to run on a database with real data unless you ad
 ## Price History & Data Check
 
 The dashboard sync keeps the last 90 days. For year-on-year comparisons, download
-the history once (from 1 Jan 2025; takes 30+ minutes, run it in a terminal):
+the history once (takes 30+ minutes, run it in a terminal):
 
 ```powershell
-python data_fetcher.py --history                 # from 1 Jan 2025 to today
+python data_fetcher.py --history                 # from 1 Jan 2026 (DLD returned no 2025 sales)
 python data_fetcher.py --since 2024-01-01        # or choose your own start date
 ```
 
@@ -186,6 +186,14 @@ month by month, ready vs off-plan) and a data health check:
 python check_data.py
 python check_data.py --baseline-year 2025 --trend-start 2026-03-01
 ```
+
+If the 2025 baseline is not available, the report compares against Jan–Feb of
+this year instead. It also shows READY (resale) homes separately: off-plan prices
+are set by developers and can hide what the resale market is doing.
+
+Land plots and implausible records (tiny sizes, impossible prices) are left out
+of the analysis — see `EXCLUDED_PROP_TYPES`, `MIN_PRICE_SQM`, `MAX_PRICE_SQM`,
+`MIN_SIZE_SQM` in `config.py`.
 
 `check_data.py` only reads the database. All sales are stored; the AED price cap
 in `config.py` (`MAX_PRICE_AED`) is applied when analysing, so you can change it

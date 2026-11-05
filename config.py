@@ -29,10 +29,23 @@ MONITORED_AREAS: dict[str, list[str]] = {
     "DAMAC Riverside": ["riverside", "damac riverside"],
 }
 
+# Areas that DLD files inside a bigger area: matched on the sale's project /
+# master-project name, but only when the DLD area is one of "within".
+# e.g. DAMAC Riverside sales are registered under "Dubai Investment Park Second".
+PROJECT_AREA_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "DAMAC Riverside": {"within": ["Dubai Investment Park 2"], "keywords": ["riverside"]},
+}
+
 # ─── Investment Filter ─────────────────────────────────────────────────────────
 MAX_PRICE_AED: int = 2_000_000          # Only analyse properties <= this (owner target: under AED 2M)
 MIN_PRICE_AED: int = 300_000            # Filter out obvious data errors
 PROPERTY_TYPES: list[str] = ["apartment", "villa", "townhouse"]  # lowercase match
+
+# ─── Analysis clean-up (applied to prices/volumes, data stays stored) ─────────
+EXCLUDED_PROP_TYPES: list[str] = ["land"]   # land plots distort price per m²
+MIN_PRICE_SQM: int = 2_000                  # below this = data error
+MAX_PRICE_SQM: int = 80_000                 # above this = data error
+MIN_SIZE_SQM: float = 20                    # smaller "homes" = data error
 
 # ─── Anomaly Thresholds ────────────────────────────────────────────────────────
 # Volume: alert if daily count < (VOLUME_DROP_THRESHOLD × 7-day rolling MA)
@@ -62,7 +75,8 @@ DLD_API_PAGE_SIZE: int = 200                   # rows per API page (max 200)
 DLD_FETCH_CHUNK_DAYS: int = 15                # download in date slices of this many days
                                                # (keeps each request small so busy areas
                                                # are not cut short by the page cap)
-DLD_HISTORY_START: str = "2025-01-01"          # default start for: python data_fetcher.py --history
+DLD_HISTORY_START: str = "2026-01-01"          # default start for: python data_fetcher.py --history
+                                               # (the DLD API returned no 2025 sales when tested)
 DLD_API_MAX_PAGES_PER_AREA: int = 10          # safety cap per area (10 × 200 = 2,000 rows)
                                                # lower = faster sync, but busy areas
                                                # (e.g. JVC) may get incomplete volumes
