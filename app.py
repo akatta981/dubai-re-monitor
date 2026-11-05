@@ -699,6 +699,17 @@ def main() -> None:
     init_db()
     # _ensure_data()  # Disabled to prevent mock data injection
 
+    # Empty database (e.g. Streamlit Cloud after a restart) → load the published
+    # real-data snapshot from GitHub (see snapshot.py)
+    if "snapshot_checked" not in st.session_state:
+        st.session_state["snapshot_checked"] = True
+        from snapshot import ensure_data_loaded
+        with st.spinner("⏳ Loading the latest data snapshot (first visit after a restart, ~30 s)…"):
+            _snap_msg = ensure_data_loaded()
+        if _snap_msg:
+            st.cache_data.clear()
+            st.toast(_snap_msg, icon="📥")
+
     # ── Session state: selected areas ─────────────────────────────────────────
     if "selected_areas" not in st.session_state:
         st.session_state.selected_areas = []
@@ -789,6 +800,15 @@ def main() -> None:
 
         # ── OFFICIAL DATA SYNC ───────────────────────────────────────────────
         with st.expander("🛠️ ADMIN: OFFICIAL DATA SYNC"):
+            if st.button("📥 Load latest data snapshot", width="stretch", key="load_snapshot",
+                         help="Adds any new sales from the snapshot published with "
+                              "'python snapshot.py publish' on your PC."):
+                from snapshot import load_latest
+                with st.spinner("Loading snapshot…"):
+                    _added, _msg = load_latest()
+                st.cache_data.clear()
+                st.session_state["sync_log"] = ("✅ " if _added else "ℹ️ ") + _msg
+                st.rerun()
             st.caption(
                 "Fetches the last 90 days of official DLD data. Demo data is removed "
                 "automatically once real records arrive. If the DLD connection fails, "
@@ -893,10 +913,11 @@ def main() -> None:
     anomaly_df     = _anomaly_full
 
     if df.empty:
-        st.warning("⚠️ No transactions recorded for the selected areas.")
+        st.warning("⚠️ The database has no sales data yet.")
         st.info(
             "Open **🛠️ ADMIN: OFFICIAL DATA SYNC** in the sidebar and click "
-            "**PURGE & SYNC** to fetch real Dubai Land Department data — or "
+            "**📥 Load latest data snapshot** (data published from your PC), "
+            "**PURGE & SYNC** to fetch real Dubai Land Department data, or "
             "**🧪 Load demo data** to try the dashboard with realistic test data."
         )
         st.stop()
