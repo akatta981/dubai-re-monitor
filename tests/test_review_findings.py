@@ -168,3 +168,43 @@ def test_same_signal_date_does_not_realert(memory_db, monkeypatch):
 def test_barshaa_spelling():
     from data_fetcher import canonicalise_area
     assert canonicalise_area("Al Barshaa South Fourth") == "JVC/JVT"
+
+
+# Live finding: every signal was dated "today" — a part-day always looks like a collapse
+def _metrics_days(area, vols, prices, end):
+    for i, (v, p) in enumerate(zip(vols, prices)):
+        d = end - timedelta(days=len(vols) - 1 - i)
+        with db.get_session() as s:
+            s.add(db.DailyMetric(metric_date=d, area_canonical=area, transaction_volume=v,
+                                 avg_price_sqm=p, total_worth=v * p * 80))
+
+
+def _next_weekday(d):
+    while d.weekday() in (5, 6):
+        d -= timedelta(days=1)
+    return d
+
+
+def test_partial_today_does_not_signal(memory_db):
+    from anomaly_detector import compute_rolling_mas, detect_anomalies
+    today = date.today()
+    _metrics_days("JVC/JVT", [22] * 10 + [5], [16000] * 10 + [12000], today)   # today = part-day
+    compute_rolling_mas()
+    assert detect_anomalies() == []
+
+
+def test_real_drop_on_complete_weekday_still_signals(memory_db):
+    from anomaly_detector import compute_rolling_mas, detect_anomalies
+    day = _next_weekday(date.today() - timedelta(days=1))
+    _metrics_days("JVC/JVT", [22] * 10 + [8], [16000] * 10 + [14000], day)
+    compute_rolling_mas()
+    types = {s["signal_type"] for s in detect_anomalies()}
+    assert {"VOLUME_DROP", "PRICE_DIP"} <= types
+
+
+def test_price_dip_needs_enough_sales(memory_db):
+    from anomaly_detector import compute_rolling_mas, detect_anomalies
+    day = _next_weekday(date.today() - timedelta(days=1))
+    _metrics_days("Palm Jumeirah", [1] * 10 + [1], [27000] * 10 + [18000], day)   # 1 sale/day
+    compute_rolling_mas()
+    assert "PRICE_DIP" not in {s["signal_type"] for s in detect_anomalies()}

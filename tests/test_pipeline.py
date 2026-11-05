@@ -65,9 +65,11 @@ def test_bayut_only_row_does_not_trigger_volume_drop(memory_db):
     assert signals == []
 
 
-def test_real_volume_drop_still_detected(memory_db):
+def test_real_volume_drop_still_detected(memory_db, monkeypatch):
     """A genuine drop in DLD sales on the latest DLD day must still fire."""
+    import config
     from anomaly_detector import compute_rolling_mas, detect_anomalies
+    monkeypatch.setattr(config, "SIGNAL_SKIP_WEEKEND_VOLUME", False)   # test must not depend on weekday
 
     today = date.today()
     area = "Business Bay"
