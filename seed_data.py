@@ -1,16 +1,30 @@
 """
 seed_data.py — Populates the database with realistic mock DLD transaction data.
-Simulates Jan–Mar 2026 with a market dip in late February (buy signal trigger).
-Run once before first launch: python seed_data.py
+
+All dates are relative to the day you run it, so the dashboard always has
+fresh data to show:
+  * Current period : 1 Jan of this year (or at least the last 120 days) → today
+  * Previous year  : full previous calendar year (for the YoY comparison)
+  * Market stress  : the last few days up to today, so buy signals are active
+
+Re-running it wipes the previous mock data (and the derived metrics / signal
+log) and seeds a fresh set. Real DLD transactions are never deleted.
+
+Run: python seed_data.py
 """
 
 from __future__ import annotations
 
+import logging
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from db import init_db, get_session, upsert_transaction, upsert_daily_metric, AnomalyLog, DailyMetric
-from config import MONITORED_AREAS
+from db import (
+    MOCK_ID_PREFIX, AnomalyLog, DailyMetric, Transaction,
+    db_is_mock_only, get_session, init_db, upsert_transaction,
+)
+
+logger = logging.getLogger(__name__)
 
 random.seed(42)  # Reproducible mock data
 
@@ -25,6 +39,9 @@ AREA_BASELINES = {
     "Dubai Hills":             {"price_sqm": (9_000,  15_000), "daily_vol": (6, 16)},
     "Dubai Investment Park 1": {"price_sqm": (6_000,  10_000), "daily_vol": (3,  9)},
     "Dubai Investment Park 2": {"price_sqm": (7_000,  11_500), "daily_vol": (2,  6)},
+    "Dubai Maritime City":     {"price_sqm": (16_000, 28_000), "daily_vol": (2,  7)},
+    "Dubai South":            {"price_sqm": (8_500,  14_000), "daily_vol": (12, 25)},
+    "DAMAC Riverside":         {"price_sqm": (9_500,  14_500), "daily_vol": (4,  10)},
 }
 
 # Realistic Bayut for-sale listing counts (under AED 2M) per area
@@ -38,6 +55,9 @@ AREA_BAYUT_BASELINES = {
     "Dubai Hills":             (500,   900),
     "Dubai Investment Park 1": (500,   1_000),
     "Dubai Investment Park 2": (300,   700),
+    "Dubai Maritime City":     (150,   400),
+    "Dubai South":            (1_000, 2_000),
+    "DAMAC Riverside":         (200,   600),
 }
 
 PROPERTY_TYPES = ["Apartment", "Apartment", "Apartment", "Villa", "Townhouse"]  # weighted
@@ -136,28 +156,82 @@ AREA_PROJECTS: dict[str, list[tuple[str, str, str]]] = {
         ("Dubai Investment Park 1", "The Sustainable City",  "The Sustainable City Cluster A"),
     ],
     "Dubai Investment Park 2": [
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Ivy"),
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Lush"),
-        ("Dubai Investment Park 2", "DAMAC Riverside",       "DAMAC Riverside Olive"),
-        ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 1"),
-        ("Dubai Investment Park 2", "DAMAC Riverside Views", "DAMAC Riverside Views Marine 2"),
+        ("Dubai Investment Park 2", "Green Community",       "Green Community Village"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 1"),
         ("Dubai Investment Park 2", "Expo Village Residences", "Expo Village Residence 2"),
-        ("Dubai Investment Park 2", "Lush at DAMAC Riverside", "Lush at DAMAC Riverside"),
+    ],
+    "Dubai Maritime City": [
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 1"),
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 2"),
+        ("Dubai Maritime City", "Chelsea Residences",       "Chelsea Residences Tower 3"),
+        ("Dubai Maritime City", "Anwa Aria",                "Anwa Aria"),
+        ("Dubai Maritime City", "Fairmont Residences",      "Fairmont Residences Skyline Tower 1"),
+        ("Dubai Maritime City", "Fairmont Residences",      "Fairmont Residences Skyline Tower 2"),
+        ("Dubai Maritime City", "The Crest",                "The Crest Tower A"),
+        ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 1"),
+        ("Dubai Maritime City", "Harbour Gate",             "Harbour Gate Tower 2"),
+    ],
+    "Dubai South": [
+        ("Dubai South", "Azizi Venice",        "Azizi Venice Tower A"),
+        ("Dubai South", "Azizi Venice",        "Azizi Venice Tower B"),
+        ("Dubai South", "Emaar South",         "Expo Golf Villas"),
+        ("Dubai South", "Emaar South",         "Urbana III"),
+        ("Dubai South", "Expo Valley",         "Shamsa Townhouses"),
+        ("Dubai South", "Expo Valley",         "Yasmina Villas"),
+        ("Dubai South", "The Pulse",           "The Pulse Residences"),
+        ("Dubai South", "The Pulse",           "The Pulse Villas"),
+        ("Dubai South", "MAG 5 Boulevard",     "MAG 560"),
+        ("Dubai South", "South Village",       "South Village Block A"),
+    ],
+    "DAMAC Riverside": [
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Marine 1"),
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Marine 2"),
+        ("DAMAC Riverside", "DAMAC Riverside Views", "Azure 2"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Ivy"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Lush"),
+        ("DAMAC Riverside", "DAMAC Riverside",       "Riverside Olive"),
     ],
 }
 
-# 2026 date range
-START_DATE = date(2026, 1, 1)
-END_DATE = date(2026, 3, 7)   # up to today
+# ─── Date windows (all relative to "today") ───────────────────────────────────
+MIN_CURRENT_DAYS = 120   # always seed at least this many days of "current" data
+STRESS_DAYS = 4          # simulated market stress = the last N days up to today
 
-# Simulate a market stress period (Israel-Iran tension spike simulation)
-STRESS_START = date(2026, 2, 15)
-STRESS_END   = date(2026, 2, 25)
 
-# 2025 full-year historical data — prices ~10-12% lower than 2026 (realistic YoY growth)
-START_DATE_2025 = date(2025, 1, 1)
-END_DATE_2025   = date(2025, 12, 31)
+def mock_date_windows(today: date | None = None) -> dict[str, date]:
+    """
+    Return the date windows used for mock data, relative to `today`.
+    Keys: start, end (current period), prev_start, prev_end (previous year),
+    stress_start, stress_end.
+    """
+    today = today or date.today()
+    start = min(date(today.year, 1, 1), today - timedelta(days=MIN_CURRENT_DAYS))
+    prev_start = date(today.year - 1, 1, 1)
+    prev_end = min(date(today.year - 1, 12, 31), start - timedelta(days=1))
+    return {
+        "start": start,
+        "end": today,
+        "prev_start": prev_start,
+        "prev_end": prev_end,
+        "stress_start": today - timedelta(days=STRESS_DAYS - 1),
+        "stress_end": today,
+    }
+
+
+_W = mock_date_windows()
+START_DATE = _W["start"]
+END_DATE = _W["end"]
+
+# Simulated market stress period (fewer sales, lower prices, more listings)
+STRESS_START = _W["stress_start"]
+STRESS_END = _W["stress_end"]
+
+# Previous-year historical data — prices ~10-12% lower (realistic YoY growth)
+START_DATE_2025 = _W["prev_start"]
+END_DATE_2025 = _W["prev_end"]
+
+# UAE weekend is Saturday–Sunday (since 2022) — fewer registrations those days
+WEEKEND_DAYS = (5, 6)
 AREA_BASELINES_2025 = {
     "Downtown Dubai":          {"price_sqm": (16_000, 22_000), "daily_vol": (7, 16)},
     "Palm Jumeirah":           {"price_sqm": (19_500, 31_000), "daily_vol": (3,  9)},
@@ -168,6 +242,9 @@ AREA_BASELINES_2025 = {
     "Dubai Hills":             {"price_sqm": (8_000,  13_000), "daily_vol": (5, 14)},
     "Dubai Investment Park 1": {"price_sqm": (5_400,   9_000), "daily_vol": (2,  8)},
     "Dubai Investment Park 2": {"price_sqm": (6_300,  10_300), "daily_vol": (1,  5)},
+    "Dubai Maritime City":     {"price_sqm": (13_500, 24_000), "daily_vol": (1,  5)},
+    "Dubai South":            {"price_sqm": (7_500,  12_500), "daily_vol": (10, 20)},
+    "DAMAC Riverside":         {"price_sqm": (8_500,  13_500), "daily_vol": (3,  8)},
 }
 
 tx_counter = 0
@@ -185,8 +262,8 @@ def generate_transactions_for_day(day: date, area: str) -> list[dict]:
     stress_volume_factor = random.uniform(0.55, 0.72) if is_stress else 1.0
     stress_price_factor  = random.uniform(0.88, 0.94) if is_stress else 1.0
 
-    # Weekends (Fri-Sat in Dubai) have lower volume
-    is_weekend = day.weekday() in (4, 5)  # Friday = 4, Saturday = 5
+    # Weekends (Sat-Sun in the UAE) have lower volume
+    is_weekend = day.weekday() in WEEKEND_DAYS
     weekend_factor = 0.3 if is_weekend else 1.0
 
     num_transactions = max(1, int(
@@ -209,7 +286,7 @@ def generate_transactions_for_day(day: date, area: str) -> list[dict]:
         master, proj, bldg = random.choice(projects) if projects else (area, None, None)
 
         records.append({
-            "transaction_id":   f"MOCK-{day.isoformat()}-{area[:3].upper()}-{tx_counter:06d}",
+            "transaction_id":   f"{MOCK_ID_PREFIX}{day.isoformat()}-{area[:3].upper()}-{tx_counter:06d}",
             "transaction_date": day,
             "actual_worth":     round(actual_worth, 2),
             "procedure_area":   round(area_sqm, 2),
@@ -226,14 +303,14 @@ def generate_transactions_for_day(day: date, area: str) -> list[dict]:
 
 
 def seed_2025_transactions() -> int:
-    """Seed full-year 2025 DLD transaction data for YoY price comparison."""
+    """Seed previous-year DLD transaction data for YoY price comparison."""
     total = 0
     counter = 500_000  # offset to avoid ID collision with 2026 records
     day = START_DATE_2025
     while day <= END_DATE_2025:
         with get_session() as session:
             for area, baseline in AREA_BASELINES_2025.items():
-                is_weekend = day.weekday() in (4, 5)
+                is_weekend = day.weekday() in WEEKEND_DAYS
                 weekend_factor = 0.3 if is_weekend else 1.0
                 num_tx = max(1, int(random.randint(*baseline["daily_vol"]) * weekend_factor))
                 for _ in range(num_tx):
@@ -247,7 +324,7 @@ def seed_2025_transactions() -> int:
                     projects = AREA_PROJECTS.get(area, [])
                     master, proj, bldg = random.choice(projects) if projects else (area, None, None)
                     r = {
-                        "transaction_id":   f"MOCK-{day.isoformat()}-{area[:3].upper()}-{counter:07d}",
+                        "transaction_id":   f"{MOCK_ID_PREFIX}{day.isoformat()}-{area[:3].upper()}-{counter:07d}",
                         "transaction_date": day,
                         "actual_worth":     round(actual_worth, 2),
                         "procedure_area":   round(area_sqm, 2),
@@ -292,9 +369,43 @@ def seed_bayut_listings() -> None:
     print(f"  ✅ Bayut listing counts seeded for {len(rows)} area-day rows")
 
 
+def clear_mock_data() -> int:
+    """
+    Remove previously seeded mock transactions plus the derived tables
+    (daily_metrics, anomaly_log) so a re-seed starts clean.
+    Real (non-mock) DLD transactions are kept; their metrics are rebuilt
+    by the aggregation step that runs after seeding.
+    Returns the number of mock transactions deleted.
+    """
+    with get_session() as session:
+        n = (
+            session.query(Transaction)
+            .filter(Transaction.transaction_id.like(f"{MOCK_ID_PREFIX}%"))
+            .delete(synchronize_session=False)
+        )
+        session.query(DailyMetric).delete(synchronize_session=False)
+        session.query(AnomalyLog).delete(synchronize_session=False)
+    return n
+
+
 def seed_database() -> None:
     """Seed DB with mock data across all areas for the full date range."""
+    global tx_counter, START_DATE, END_DATE, STRESS_START, STRESS_END, START_DATE_2025, END_DATE_2025
+    random.seed(42)  # reproducible, even when called repeatedly in one process
+    tx_counter = 0
+
+    # Recompute the windows now: a long-running Streamlit server may have
+    # imported this module days ago, and the demo data must end *today*.
+    w = mock_date_windows()
+    START_DATE, END_DATE = w["start"], w["end"]
+    STRESS_START, STRESS_END = w["stress_start"], w["stress_end"]
+    START_DATE_2025, END_DATE_2025 = w["prev_start"], w["prev_end"]
+
     init_db()
+    removed = clear_mock_data()
+    if removed:
+        print(f"  🧹 Removed {removed} old mock transactions (and derived metrics/signals)")
+
     print(f"Seeding mock data from {START_DATE} to {END_DATE}...")
     print(f"  Market stress period: {STRESS_START} → {STRESS_END} (simulated buy signal)\n")
 
@@ -309,10 +420,10 @@ def seed_database() -> None:
                         total_tx += 1
         day += timedelta(days=1)
 
-    print(f"  ✅ Inserted {total_tx} mock 2026 transactions")
-    print("  Seeding 2025 historical data for YoY comparison (this takes ~30s)...")
+    print(f"  ✅ Inserted {total_tx} mock {START_DATE.year} transactions")
+    print(f"  Seeding {START_DATE_2025.year} historical data for YoY comparison...")
     tx_2025 = seed_2025_transactions()
-    print(f"  ✅ Inserted {tx_2025} mock 2025 transactions")
+    print(f"  ✅ Inserted {tx_2025} mock {START_DATE_2025.year} transactions")
     print("  Running aggregation pipeline...")
 
     # Run pipeline steps individually so we can inject mock Bayut data
@@ -335,4 +446,12 @@ def seed_database() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    init_db()
+    if not db_is_mock_only() and "--force" not in sys.argv:
+        print("⚠️  Your database already contains real DLD transactions.")
+        print("   Seeding mock data would mix fake numbers into your real averages.")
+        print("   If you really want to, run:  python seed_data.py --force")
+        sys.exit(1)
     seed_database()

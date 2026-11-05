@@ -1,7 +1,7 @@
 # 🏙️ Dubai Real Estate Anomaly Monitor
 
 Personal investment research tool. Monitors DLD transaction data + Bayut supply listings
-to detect buy signals for **under AED 2M residential properties** across 7 Dubai areas.
+to detect buy signals for **under AED 2M residential properties** across 12 Dubai areas.
 
 > ⚠️ **Personal research only. Not financial advice.**
 
@@ -117,7 +117,7 @@ Fill in your credentials:
 ### Step 7 — Load Mock Data and Launch
 
 ```powershell
-# Create database and populate with Jan–Mar 2026 mock data
+# Create database and populate with demo (mock) data that ends today
 python seed_data.py
 
 # Launch dashboard
@@ -147,15 +147,76 @@ and sends alerts automatically. The dashboard refreshes every 15 minutes.
 
 ## Switching from Mock to Live Data
 
-The mock data simulates Jan–Mar 2026 with a stress period (Feb 15–25) to trigger
-buy signals for testing. To switch to live DLD data:
+The mock data always ends **today**: it covers this year so far (at least the last
+120 days) plus the whole previous year for the YoY comparison. The last 4 days are
+a simulated "market stress" period, so you will see buy signals to test with.
+You can also load it from the dashboard: sidebar → **🛠️ ADMIN: OFFICIAL DATA SYNC**
+→ **🧪 Load demo data**. The status bar shows **DEMO DATA (not real)** while it is in use.
+While only demo data is loaded, signals are detected but **no real email/WhatsApp
+alerts are sent** (the "Test alert" button still works so you can check your setup).
+
+To switch to live DLD data, click **🔥 PURGE & SYNC OFFICIAL DATA** in the same
+sidebar panel, or from a terminal:
 
 ```powershell
 python data_fetcher.py
 ```
 
 This downloads the real DLD CSV and upserts new transactions. Run this once,
-then let `scheduler.py` handle it automatically.
+then let `scheduler.py` handle it automatically. The first time real DLD rows
+arrive, the demo data is removed automatically so fake and real numbers are never
+mixed. (`seed_data.py` refuses to run on a database with real data unless you add `--force`.)
+
+---
+
+## Price History & Data Check
+
+The dashboard sync keeps the last 90 days. For year-on-year comparisons, download
+the history once (takes 30+ minutes, run it in a terminal):
+
+```powershell
+python data_fetcher.py --history                 # from 1 Jan 2026 (DLD returned no 2025 sales)
+python data_fetcher.py --since 2024-01-01        # or choose your own start date
+```
+
+Then print a summary (median price per m² per area, 2025 vs since 1 March 2026,
+month by month, ready vs off-plan) and a data health check:
+
+```powershell
+python check_data.py
+python check_data.py --baseline-year 2025 --trend-start 2026-03-01
+```
+
+If the 2025 baseline is not available, the report compares against Jan–Feb of
+this year instead. It also shows READY (resale) homes separately: off-plan prices
+are set by developers and can hide what the resale market is doing.
+
+Land plots and implausible records (tiny sizes, impossible prices) are left out
+of the analysis — see `EXCLUDED_PROP_TYPES`, `MIN_PRICE_SQM`, `MAX_PRICE_SQM`,
+`MIN_SIZE_SQM` in `config.py`.
+
+**Buy decision scorecard** — dashboard tab "Buy decision" (or `python decision.py`):
+per area, last 3 full months vs the 3 before — resale price trend, fall from this
+year's high, buyer activity, off-plan premium, off-plan share, confidence — and a
+plain-language timing lean. Evidence only, not financial advice; thresholds are the
+`DECISION_*` settings in `config.py`.
+
+`check_data.py` only reads the database. All sales are stored; the AED price cap
+in `config.py` (`MAX_PRICE_AED`) is applied when analysing, so you can change it
+without re-downloading.
+
+---
+
+## Run with Docker (optional)
+
+Requires Docker Desktop. Data is kept in a Docker volume between runs.
+
+```powershell
+docker build -t dubai-re-monitor .
+docker run -p 8501:8501 -v dubai-re-data:/app/data --env-file .env dubai-re-monitor
+```
+
+Open http://localhost:8501. (Omit `--env-file .env` if you have no alert settings.)
 
 ---
 
@@ -186,7 +247,8 @@ dubai-re-monitor/
 ├── data/                   SQLite database lives here (auto-created)
 │   └── dubai_re.db
 └── tests/
-    └── test_anomaly_detector.py
+    ├── test_anomaly_detector.py
+    └── test_pipeline.py
 ```
 
 ---
@@ -211,9 +273,12 @@ MAX_PRICE_AED = 2_000_000      # Only flag signals for properties under this
 | `streamlit: command not found` | Run `pip install streamlit` again; restart PowerShell |
 | Email not sending | Use App Password not account password; check Gmail allows less secure apps |
 | WhatsApp not sending | Send the Twilio sandbox join message from your phone first |
-| DLD CSV not downloading | Check DLD website manually; URL may have changed (update `config.py` → `DLD_BASE_URL`) |
+| DLD data not downloading | The DLD open-data API may have changed — check `config.py` → `DLD_API_BASE` |
 | Bayut returns no counts | Site may have changed HTML; check `data/scheduler.log` for details |
-| No buy signals in mock data | Run `python seed_data.py` again — stress period is Feb 15–25 |
+| No buy signals in mock data | Click **🧪 Load demo data** again (or run `python seed_data.py`) — the stress period is always the last 4 days |
+| Dashboard says "No transactions recorded" | Use **PURGE & SYNC** for real DLD data, or **🧪 Load demo data** to test |
+| Sync says "DLD fetch failed" | Your existing data is kept. Check internet access to `gateway.dubailand.gov.ae`; details in the terminal log |
+| Busy areas (e.g. JVC) show too few sales | Raise `DLD_API_MAX_PAGES_PER_AREA` in `config.py` (each page = 200 sales) |
 
 ---
 

@@ -17,7 +17,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import config
-from db import AnomalyLog, DailyMetric, FetchLog, SessionLocal, Transaction, init_db
+from db import AnomalyLog, DailyMetric, FetchLog, SessionLocal, Transaction, analysis_conditions, init_db
 from market_intelligence import get_buy_recommendation, MACRO_SUMMARY, AREA_INTEL
 
 load_dotenv()
@@ -35,23 +35,386 @@ st.set_page_config(
 # ─── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    div[data-testid="stMetricValue"] { font-size: 1.3rem; font-weight: 700; }
-    div[data-testid="stMetricLabel"] { font-size: 0.8rem; }
-    .last-refresh { color: #718096; font-size: 12px; }
-    .signal-card {
-        border-radius: 10px;
-        padding: 18px 20px;
-        margin: 8px 0;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    /*
+     * TEXT HIERARCHY (on #050505 background):
+     *   Primary   #F0F0F0  — headings, key numbers         contrast ~18:1
+     *   Secondary #BBBBBB  — body text, descriptions        contrast ~11:1
+     *   Tertiary  #888888  — labels, captions               contrast  ~6:1
+     *   Muted     #666666  — timestamps, footnotes only     contrast  ~4:1
+     */
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        color: #BBBBBB !important;
     }
+
+    /* ── Global background ─────────────────────────────────────── */
+    .stApp { background: #050505 !important; }
+    section[data-testid="stSidebar"] {
+        background: #0A0A0A !important;
+        border-right: 1px solid #2A2A2A !important;
+    }
+
+    /* ── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0A0A0A; }
+    ::-webkit-scrollbar-thumb { background: #FF5500; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #FF7733; }
+
+    /* ── Selection ─────────────────────────────────────────────── */
+    ::selection { background: #FF550033; color: #FF5500; }
+
+    /* ── All Streamlit text ─────────────────────────────────────── */
+    p, li, span, label, div { color: #BBBBBB; }
+
+    /* Headings */
+    h1, h2, h3, h4, [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2,
+    [data-testid="stHeading"] h3 {
+        color: #F0F0F0 !important;
+        font-weight: 700 !important;
+    }
+
+    /* Captions — tertiary level */
+    [data-testid="stCaptionText"],
+    .stCaption p {
+        color: #888 !important;
+        font-size: 0.82rem !important;
+    }
+
+    /* Markdown body text */
+    [data-testid="stMarkdown"] p { color: #BBBBBB !important; }
+    [data-testid="stMarkdown"] li { color: #BBBBBB !important; }
+
+    /* Sidebar widget labels */
+    label[data-testid="stWidgetLabel"],
+    .stSidebar label,
+    [data-testid="stSidebar"] label { color: #CCC !important; font-weight: 500 !important; }
+
+    /* Sidebar subheaders + expander headers */
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] .stSubheader { color: #EEE !important; }
+
+    /* Expander label */
+    [data-testid="stExpander"] summary p { color: #BBB !important; }
+
+    /* Toggle labels */
+    [data-testid="stToggle"] label p { color: #CCC !important; }
+
+    /* Slider label */
+    [data-testid="stSlider"] label { color: #CCC !important; }
+    [data-testid="stSlider"] [data-testid="stTickBarMin"],
+    [data-testid="stSlider"] [data-testid="stTickBarMax"] { color: #888 !important; }
+
+    /* Multiselect label */
+    [data-testid="stMultiSelect"] label { color: #CCC !important; }
+
+    /* Selectbox label */
+    [data-testid="stSelectbox"] label { color: #CCC !important; }
+
+    /* Info / warning / success / error boxes — improve text */
+    [data-testid="stAlert"] p { color: #EEE !important; font-size: 0.9rem !important; }
+
+    /* ── Metric containers ─────────────────────────────────────── */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.35rem;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace !important;
+        color: #F0F0F0 !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 0.82rem !important;
+        color: #AAA !important;
+        font-weight: 500 !important;
+    }
+    div[data-testid="stMetricDelta"] {
+        font-size: 0.8rem !important;
+    }
+    div[data-testid="metric-container"] {
+        background: #0D0D0D !important;
+        border: 1px solid #2A2A2A !important;
+        border-radius: 8px !important;
+        padding: 14px 16px !important;
+        transition: border-color 0.2s ease;
+    }
+    div[data-testid="metric-container"]:hover { border-color: #FF5500 !important; }
+
+    /* ── Tabs ───────────────────────────────────────────────────── */
+    button[data-baseweb="tab"] {
+        background: transparent !important;
+        color: #888 !important;
+        border-bottom: 2px solid transparent !important;
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.3px !important;
+        transition: color 0.2s ease !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #FF5500 !important;
+        border-bottom: 2px solid #FF5500 !important;
+    }
+    button[data-baseweb="tab"]:hover { color: #FF7733 !important; }
+
+    /* ── Buttons ────────────────────────────────────────────────── */
+    .stButton > button {
+        background: #111 !important;
+        border: 1px solid #333 !important;
+        color: #CCC !important;
+        border-radius: 6px !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button:hover {
+        border-color: #FF5500 !important;
+        color: #FF5500 !important;
+        background: #1A0800 !important;
+    }
+
+    /* ── Dividers ───────────────────────────────────────────────── */
+    hr { border-color: #2A2A2A !important; }
+
+    /* ── Footer text ────────────────────────────────────────────── */
+    .last-refresh { color: #666; font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Tables (dataframe / st.table) ──────────────────────────── */
+    [data-testid="stDataFrame"] { border: 1px solid #2A2A2A !important; border-radius: 8px; }
+    [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th {
+        color: #CCC !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* ── Multiselect — dropdown menu ────────────────────────────── */
+    [data-baseweb="menu"] {
+        background: #111 !important;
+        border: 1px solid #2A2A2A !important;
+        border-radius: 8px !important;
+    }
+    [role="option"] {
+        background: #111 !important;
+        color: #DDD !important;
+        font-size: 0.88rem !important;
+        padding: 10px 14px !important;
+    }
+    [role="option"]:hover {
+        background: #1A0800 !important;
+        color: #FF7733 !important;
+    }
+
+    /* ── Multiselect — selected area chips ──────────────────────── */
+    [data-baseweb="tag"] {
+        background: #1A0800 !important;
+        border: 1px solid #FF550066 !important;
+        border-radius: 6px !important;
+        margin: 2px !important;
+    }
+    [data-baseweb="tag"] span[role="presentation"] {
+        color: #FFAA77 !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+    }
+    [data-baseweb="tag"] [role="button"] { color: #FF7733 !important; }
+
+    /* ── Multiselect — input box ─────────────────────────────────── */
+    [data-baseweb="select"] > div:first-child {
+        background: #0D0D0D !important;
+        border: 1px solid #2A2A2A !important;
+        border-radius: 8px !important;
+    }
+    [data-baseweb="select"] input { color: #CCC !important; }
+    [data-baseweb="select"] input::placeholder { color: #666 !important; }
+
+    /* ── Legacy signal card classes ─────────────────────────────── */
+    .signal-card { border-radius: 8px; padding: 18px 20px; margin: 8px 0; }
     .tag {
         display: inline-block;
-        padding: 2px 10px;
+        padding: 3px 11px;
         border-radius: 12px;
-        font-size: 0.78rem;
+        font-size: 0.8rem;
         font-weight: 600;
         margin-right: 6px;
-        background: #2d3748;
-        color: #cbd5e0;
+        background: #1A1A1A;
+        color: #AAA;
+    }
+
+    /* ── Sidebar area toggle buttons ────────────────────────────── */
+    section[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+        background: #0D0D0D !important;
+        border: 1px solid #222 !important;
+        color: #666 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.82rem !important;
+        padding: 7px 12px !important;
+        border-radius: 6px !important;
+        letter-spacing: 0.2px !important;
+        width: 100% !important;
+        margin-bottom: 2px !important;
+        font-weight: 500 !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+        border-color: #FF5500 !important;
+        color: #FF7733 !important;
+        background: #0D0500 !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background: #1A0800 !important;
+        border: 1px solid #FF5500 !important;
+        color: #FF7733 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-size: 0.82rem !important;
+        padding: 7px 12px !important;
+        border-radius: 6px !important;
+        letter-spacing: 0.2px !important;
+        width: 100% !important;
+        margin-bottom: 2px !important;
+        font-weight: 600 !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+        background: #240B00 !important;
+        border-color: #FF7733 !important;
+    }
+
+    /* ── Status bar ─────────────────────────────────────────────── */
+    .status-bar { padding: 4px 0 2px; }
+    .status-row { display:flex; align-items:center; gap:8px; padding:5px 0; }
+    .sdot { width:7px; height:7px; border-radius:50%; flex-shrink:0; display:inline-block; }
+    .sdot-green { background:#22c55e; box-shadow:0 0 5px #22c55e88; }
+    .sdot-amber { background:#f59e0b; box-shadow:0 0 5px #f59e0b88; }
+    .slabel-green { font-size:0.72rem; font-weight:700; letter-spacing:0.9px;
+                    text-transform:uppercase; color:#22c55e; }
+    .slabel-amber { font-size:0.72rem; font-weight:700; letter-spacing:0.9px;
+                    text-transform:uppercase; color:#f59e0b; }
+
+    /* ── Section header label ────────────────────────────────────── */
+    .sec-hdr {
+        color: #555 !important;
+        font-size: 0.7rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1.3px !important;
+        padding: 0 0 6px 0 !important;
+    }
+
+    /* ── Simulation expander ────────────────────────────────────── */
+    [data-testid="stExpander"] {
+        background: #0A0A0A !important;
+        border: 1px solid #1A1A1A !important;
+        border-radius: 8px !important;
+    }
+
+    /* ── Snapshot area card (Select All / Clear buttons) ─────────── */
+    .ctrl-btn > button {
+        font-size: 0.78rem !important;
+        padding: 5px 8px !important;
+        color: #888 !important;
+    }
+
+    /* ── Pill navigation (st.radio used as tab nav) ────────────────── */
+    div[data-testid="stRadio"] > div[role="radiogroup"] {
+        display: flex !important;
+        gap: 4px !important;
+        justify-content: flex-end !important;
+        flex-wrap: nowrap !important;
+        background: transparent !important;
+        padding: 4px 0 !important;
+    }
+    div[data-testid="stRadio"] label {
+        background: #0D0D0D !important;
+        border: 1px solid #222 !important;
+        border-radius: 20px !important;
+        padding: 7px 18px !important;
+        color: #666 !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.3px !important;
+        cursor: pointer !important;
+        transition: all 0.15s ease !important;
+        white-space: nowrap !important;
+        margin: 0 !important;
+    }
+    div[data-testid="stRadio"] label:hover {
+        border-color: #FF5500 !important;
+        color: #FF7733 !important;
+    }
+    div[data-testid="stRadio"] label:has(input:checked) {
+        background: #FF5500 !important;
+        border-color: #FF5500 !important;
+        color: #000 !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stRadio"] input[type="radio"] {
+        position: absolute !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+    div[data-testid="stRadio"] > label { display: none !important; }
+    /* Hide the radio indicator dot (the 16×16 div before the text) */
+    div[role="radiogroup"] label > div:first-child { display: none !important; }
+
+    /* ══════════════════════════════════════════════════════════════════
+     * MOBILE RESPONSIVE — @media ≤ 480px
+     * Keeps desktop layout untouched; only overrides on small screens.
+     * ══════════════════════════════════════════════════════════════════ */
+    @media (max-width: 480px) {
+        /* ── Global: prevent horizontal overflow ─────────────────── */
+        .stApp, [data-testid="stMain"], [data-testid="stMainBlockContainer"],
+        section.main .block-container {
+            max-width: 100vw !important;
+            overflow-x: hidden !important;
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+        }
+
+        /* ── Force Streamlit columns to stack vertically ─────────── */
+        [data-testid="stHorizontalBlock"] {
+            flex-direction: column !important;
+            gap: 8px !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 0 !important;
+        }
+
+        /* ── Header title: smaller on mobile ─────────────────────── */
+        h1 { font-size: 1.4rem !important; }
+        h2 { font-size: 1.15rem !important; }
+        h3, h4 { font-size: 0.95rem !important; }
+
+        /* ── Nav pills: wrap + center ────────────────────────────── */
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            gap: 6px !important;
+        }
+        div[data-testid="stRadio"] label {
+            padding: 6px 14px !important;
+            font-size: 0.75rem !important;
+        }
+
+        /* ── Metric cards: compact ───────────────────────────────── */
+        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
+        div[data-testid="metric-container"] { padding: 10px 12px !important; }
+
+        /* ── DataFrames: horizontal scroll ───────────────────────── */
+        [data-testid="stDataFrame"] {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* ── Expander: full width ────────────────────────────────── */
+        [data-testid="stExpander"] { margin-left: 0 !important; margin-right: 0 !important; }
+
+        /* ── Footer ──────────────────────────────────────────────── */
+        .last-refresh { font-size: 0.65rem !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -65,17 +428,17 @@ SIGNAL_LABELS = {
 }
 
 SIGNAL_COLORS = {
-    "STRONG_BUY":   "#fc8181",
-    "VOLUME_DROP":  "#f6ad55",
-    "PRICE_DIP":    "#68d391",
-    "SUPPLY_SURGE": "#76e4f7",
+    "STRONG_BUY":   "#FF5500",
+    "VOLUME_DROP":  "#FF7733",
+    "PRICE_DIP":    "#FF9955",
+    "SUPPLY_SURGE": "#FFAA77",
 }
 
 SIGNAL_BG = {
-    "STRONG_BUY":   "#2d1515",
-    "VOLUME_DROP":  "#2d2310",
-    "PRICE_DIP":    "#132d1e",
-    "SUPPLY_SURGE": "#0d2535",
+    "STRONG_BUY":   "#1A0800",
+    "VOLUME_DROP":  "#150A00",
+    "PRICE_DIP":    "#120C00",
+    "SUPPLY_SURGE": "#100E00",
 }
 
 SIGNAL_ICONS = {
@@ -125,7 +488,9 @@ def load_daily_metrics(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame([{
             "date":           r.metric_date,
             "area":           r.area_canonical,
-            "volume":         r.transaction_volume,
+            # A row with no DLD sales aggregated yet (only a Bayut count) means
+            # "sales unknown", not "0 sales" — older DBs stored 0 for these.
+            "volume":         r.transaction_volume if r.total_worth is not None else None,
             "price_sqm":      r.avg_price_sqm,
             "total_worth":    r.total_worth,
             "median_price":   r.median_price,
@@ -136,6 +501,13 @@ def load_daily_metrics(days: int = 90) -> pd.DataFrame:
         } for r in rows])
     finally:
         session.close()
+
+
+@st.cache_data(ttl=300)
+def load_scorecard():
+    """Buy-decision scorecard (see decision.py)."""
+    from decision import scorecard
+    return scorecard()
 
 
 @st.cache_data(ttl=300)
@@ -150,7 +522,10 @@ def load_anomaly_log(limit: int = 100) -> pd.DataFrame:
             .all()
         )
         if not rows:
-            return pd.DataFrame()
+            return pd.DataFrame(columns=[
+                "detected_at", "area", "signal_type", "deviation_pct",
+                "signal_value", "baseline_value", "alert_sent", "notes"
+            ])
         return pd.DataFrame([{
             "detected_at":    r.detected_at,
             "area":           r.area_canonical,
@@ -166,8 +541,9 @@ def load_anomaly_log(limit: int = 100) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600)
-def load_2025_avg_price() -> dict[str, float]:
-    """Load full-year 2025 average DLD sale price per m² per area (for YoY comparison)."""
+def load_2025_avg_price(year: int | None = None) -> dict[str, float]:
+    """Load the previous calendar year's average DLD sale price per m² per area (for YoY)."""
+    year = year or PREV_YEAR
     from datetime import date
     from sqlalchemy import func
     session = SessionLocal()
@@ -178,8 +554,9 @@ def load_2025_avg_price() -> dict[str, float]:
                 func.avg(Transaction.price_per_sqm).label("avg_price"),
             )
             .filter(
-                Transaction.transaction_date >= date(2025, 1, 1),
-                Transaction.transaction_date <= date(2025, 12, 31),
+                Transaction.transaction_date >= date(year, 1, 1),
+                Transaction.transaction_date <= date(year, 12, 31),
+                *analysis_conditions(),
                 Transaction.price_per_sqm.isnot(None),
             )
             .group_by(Transaction.area_canonical)
@@ -229,6 +606,7 @@ def load_project_transactions(project: str, days: int = 90) -> pd.DataFrame:
             .filter(
                 Transaction.project_name == project,
                 Transaction.transaction_date >= cutoff,
+                *analysis_conditions(),
             )
             .order_by(Transaction.transaction_date)
             .all()
@@ -286,6 +664,19 @@ def area_signal_status(area: str, anomaly_df: pd.DataFrame) -> str:
     return "ok"
 
 
+# ─── HTML card renderer (works across Streamlit versions) ─────────────────────
+def render_html_card(html: str, height: int, scrolling: bool = False) -> None:
+    """Render a self-contained HTML card in an iframe.
+    Uses st.iframe on newer Streamlit; falls back to components.html on older."""
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:
+        components.html(html, height=height, scrolling=scrolling)
+
+
+PREV_YEAR: int = datetime.utcnow().year - 1   # YoY baseline = previous calendar year
+
+
 # ─── Auto-seed (cloud / first run) ───────────────────────────────────────────
 def _ensure_data() -> None:
     """
@@ -306,113 +697,216 @@ def _ensure_data() -> None:
 # ─── Main App ─────────────────────────────────────────────────────────────────
 def main() -> None:
     init_db()
-    _ensure_data()
+    # _ensure_data()  # Disabled to prevent mock data injection
+
+    # ── Session state: selected areas ─────────────────────────────────────────
+    if "selected_areas" not in st.session_state:
+        st.session_state.selected_areas = []
 
     st.markdown(
         f'<meta http-equiv="refresh" content="{config.DASHBOARD_REFRESH_SECONDS}">',
         unsafe_allow_html=True,
     )
 
+    # ── Demo vs real data ─────────────────────────────────────────────────────
+    from db import db_is_mock_only
+    _demo_allowed = db_is_mock_only()          # no real DLD rows in the DB
+    with SessionLocal() as _s:
+        _has_rows = _s.query(Transaction.id).first() is not None
+    _demo_mode = _demo_allowed and _has_rows   # currently showing demo data
+
+    # ── Pre-load anomaly log (needed by sidebar signal icons) ─────────────────
+    _anomaly_full = load_anomaly_log()
+
     # ── Sidebar ───────────────────────────────────────────────────────────────
     with st.sidebar:
-        st.title("🏙️ Dubai RE Monitor")
+        # Branding
+        st.markdown(
+            '<div style="font-family:\'Inter\',sans-serif;font-size:1.55rem;font-weight:800;'
+            'letter-spacing:-0.5px;padding:6px 0 2px;line-height:1.1;">'
+            '<span style="color:#F0F0F0;">DUBAI</span>'
+            '<span style="color:#FF5500;">RE</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         st.caption("Personal investment research tool")
         st.divider()
 
-        st.subheader("🔍 Filters")
-        selected_areas = st.multiselect(
-            "Areas to watch",
-            options=list(config.MONITORED_AREAS.keys()),
-            default=[],
-            placeholder="Select one or more areas…",
-        )
+        # ── MONITORED AREAS ───────────────────────────────────────────────────
+        st.markdown('<div class="sec-hdr">MONITORED AREAS</div>', unsafe_allow_html=True)
 
-        # Project filter — populated once areas are chosen
+        _sa_cols = st.columns(2)
+        with _sa_cols[0]:
+            if st.button("Select All", key="sel_all", width="stretch"):
+                st.session_state.selected_areas = list(config.MONITORED_AREAS.keys())
+                st.rerun()
+        with _sa_cols[1]:
+            if st.button("Clear", key="sel_clear", width="stretch"):
+                st.session_state.selected_areas = []
+                st.rerun()
+
+        st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
+
+        for _area in config.MONITORED_AREAS:
+            _is_active  = _area in st.session_state.selected_areas
+            _short      = _area.replace("Dubai ", "").replace("Arabian ", "")
+            _sig_status = area_signal_status(_area, _anomaly_full)
+            _dot = "🔴 " if _sig_status == "strong" else ("🟡 " if _sig_status == "signal" else "⚫ ")
+            if st.button(
+                f"{_dot}{_short}",
+                key=f"area_{_area}",
+                width="stretch",
+                type="primary" if _is_active else "secondary",
+            ):
+                if _is_active:
+                    st.session_state.selected_areas.remove(_area)
+                else:
+                    st.session_state.selected_areas.append(_area)
+                st.rerun()
+
+        st.divider()
+
+        # ── TIME HORIZON ──────────────────────────────────────────────────────
+        st.markdown('<div class="sec-hdr">TIME HORIZON</div>', unsafe_allow_html=True)
+        lookback = st.slider("Days", 14, 90, 60, label_visibility="collapsed")
+
+        # ── PROJECT FOCUS ──────────────────────────────────────────────────────
         selected_project: str | None = None
-        if selected_areas:
-            proj_map   = load_project_names(tuple(selected_areas))  # type: ignore[arg-type]
-            all_projs  = sorted({p for ps in proj_map.values() for p in ps})
-            if all_projs:
-                proj_options = ["All projects"] + all_projs
-                proj_choice  = st.selectbox(
-                    "Focus on a project",
-                    options=proj_options,
-                    index=0,
-                    help="Drill into a specific development. Choose 'All projects' for area-level view.",
+        _sel_areas = st.session_state.selected_areas
+        if _sel_areas:
+            _proj_map  = load_project_names(tuple(_sel_areas))  # type: ignore[arg-type]
+            _all_projs = sorted({p for ps in _proj_map.values() for p in ps})
+            if _all_projs:
+                st.markdown('<div class="sec-hdr" style="margin-top:8px;">PROJECT FOCUS</div>', unsafe_allow_html=True)
+                _proj_opts  = ["All projects"] + _all_projs
+                _proj_choice = st.selectbox(
+                    "Project", options=_proj_opts, index=0, label_visibility="collapsed",
+                    help="Drill into a specific development.",
                 )
-                selected_project = None if proj_choice == "All projects" else proj_choice
-
-        lookback = st.slider("Show last N days", 14, 90, 60)
+                selected_project = None if _proj_choice == "All projects" else _proj_choice
 
         st.divider()
 
-        with st.expander("ℹ️ How it works"):
-            st.markdown("""
-**What this monitors:**
-- **DLD** — Dubai Land Department publishes every property transaction. We watch for sudden drops in volume or price.
-- **Bayut** — We count active listings as a supply proxy.
-
-**Signal types:**
-- 📉 **Volume Drop** — transactions fell >20% below their 7-day average
-- 💰 **Price Dip** — price/m² dropped below its 30-day trend
-- 🏗️ **Supply Surge** — listings spiked >10% above normal
-- 🚨 **Strong Buy** — volume drop AND price dip at the same time
-
-**Your target:** Under AED 2M · Residential · All 7 areas
-            """)
-
-        st.divider()
-        st.subheader("📡 Data Sources")
-        fetch_status = load_fetch_status()
-        for source, info in fetch_status.items():
-            icon  = "✅" if info["status"] == "success" else "⚠️"
-            label = "DLD Transactions" if source == "dld" else "Bayut Listings"
-            st.markdown(f"**{label}** {icon}")
-            st.caption(f"Last updated: {info['last_fetch']}")
-
-        st.divider()
-        st.subheader("🔔 Alerts")
-        alert_email    = st.toggle("Email alerts",    value=True)
-        alert_whatsapp = st.toggle("WhatsApp alerts", value=True)
-
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            if st.button("🔄 Refresh now", use_container_width=True):
-                with st.spinner("Running pipeline…"):
+        # ── OFFICIAL DATA SYNC ───────────────────────────────────────────────
+        with st.expander("🛠️ ADMIN: OFFICIAL DATA SYNC"):
+            st.caption(
+                "Fetches the last 90 days of official DLD data. Demo data is removed "
+                "automatically once real records arrive. If the DLD connection fails, "
+                "your existing data is kept."
+            )
+            if st.button("🔥 PURGE & SYNC OFFICIAL DATA", width="stretch"):
+                logs: list[str] = []
+                with st.spinner("Fetching official DLD data (can take a few minutes)…"):
                     from data_fetcher import fetch_dld_transactions
+                    n_new, err = fetch_dld_transactions(lookback_days=90)
+                if err and n_new:
+                    logs.append(f"⚠️ DLD sync stopped part-way: {n_new} new official records saved "
+                                f"(demo data removed). Some areas may be incomplete — run sync again. "
+                                f"Reason: {err}")
+                elif err:
+                    logs.append(f"❌ DLD fetch failed — existing data kept. Reason: {err}")
+                else:
+                    logs.append(f"✅ DLD sync complete: {n_new} new official records.")
+                with st.spinner("Recalculating signals..."):
+                    from anomaly_detector import run_detection_pipeline
+                    signals = run_detection_pipeline()
+                    logs.append(f"✅ Anomaly engine ran: {len(signals)} new signals.")
+                st.cache_data.clear()
+                st.session_state["sync_log"] = "\n".join(logs)
+                st.rerun()
+            if st.session_state.get("sync_log"):
+                st.code(st.session_state["sync_log"])
+
+            st.divider()
+            st.caption("No DLD access yet? Load realistic **demo data** (ends today) to test the dashboard.")
+            if st.button("🧪 Load demo data", width="stretch", key="load_demo",
+                         disabled=not _demo_allowed):
+                from seed_data import seed_database
+                with st.spinner("Generating demo data (about 30 s)…"):
+                    seed_database()
+                st.cache_data.clear()
+                st.rerun()
+            if not _demo_allowed:
+                st.caption("Disabled — your database already holds real DLD data.")
+
+        # ── SIMULATION ────────────────────────────────────────────────────────
+        with st.expander("⚡ RE-RUN PIPELINE"):
+            st.caption("Scan the existing local dataset for new signals.")
+            alert_email    = st.toggle("Email alerts",    value=True, key="sim_email")
+            alert_whatsapp = st.toggle("WhatsApp alerts", value=True, key="sim_wa")
+            if _demo_mode:
+                st.caption("🧪 Demo data — signals are detected but **no real alerts are sent**.")
+            if st.button("▶ Run detection", width="stretch"):
+                with st.spinner("Running…"):
                     from anomaly_detector import run_detection_pipeline
                     from alerts import send_alerts
-                    n       = fetch_dld_transactions()
                     signals = run_detection_pipeline()
-                    if signals:
-                        channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
+                    channels = (["email"] if alert_email else []) + (["whatsapp"] if alert_whatsapp else [])
+                    if signals and channels and not _demo_mode:
                         send_alerts(signals, channels=channels)
                     st.cache_data.clear()
-                st.success(f"{n} new rows · {len(signals)} signals")
-        with col_b2:
-            if st.button("📧 Test alert", use_container_width=True):
-                from alerts import test_alerts
-                with st.spinner("Sending…"):
-                    test_alerts()
-                st.success("Sent — check logs")
+                st.success(f"Analysis complete · {len(signals)} new signals")
+            if st.button("📧 Test alert", width="stretch", key="sim_test"):
+                from alerts import configured_channels, test_alerts
+                wanted = [c for c, on in (("email", alert_email), ("whatsapp", alert_whatsapp))
+                          if on and c in configured_channels()]
+                if not wanted:
+                    st.warning("No alert channel is set up. Add your Gmail / Twilio "
+                               "details to the `.env` file.")
+                else:
+                    with st.spinner("Sending…"):
+                        results = test_alerts(channels=wanted)
+                    for ch, ok in results.items():
+                        (st.success if ok else st.error)(
+                            f"{ch.title()}: {'sent ✅' if ok else 'failed ❌ — check terminal log'}")
 
         st.divider()
-        st.caption("⚠️ Personal research only. Not financial advice.")
+
+        # ── DATA SOURCES STATUS BAR ───────────────────────────────────────────
+        _fetch = load_fetch_status()
+        _dld   = _fetch.get("dld",   {"status": "unknown", "last_fetch": "Never", "rows": 0})
+        _bayt  = _fetch.get("bayut", {"status": "unknown", "last_fetch": "Never", "rows": 0})
+        _dld_green  = _dld["status"]  == "success" and not _demo_mode
+        _bayt_green = _bayt["status"] == "success"
+        st.markdown(
+            f'<div class="status-bar">'
+            f'<div class="status-row" title="Last fetch: {_dld["last_fetch"]} ({_dld["rows"]} rows)">'
+            f'  <span class="sdot {"sdot-green" if _dld_green else "sdot-amber"}"></span>'
+            f'  <span class="{"slabel-green" if _dld_green else "slabel-amber"}">{"DEMO DATA (not real)" if _demo_mode else ("DLD CONNECTED" if _dld_green else "DLD NOT CONNECTED")} ({_dld["rows"]} rows)</span>'
+            f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_dld["last_fetch"]}</span>'
+            f'</div>'
+            f'<div class="status-row" title="Last fetch: {_bayt["last_fetch"]} ({_bayt["rows"]} rows)">'
+            f'  <span class="sdot {"sdot-green" if _bayt_green else "sdot-amber"}"></span>'
+            f'  <span class="{"slabel-green" if _bayt_green else "slabel-amber"}">{"SCRAPER ACTIVE" if _bayt_green else "SCRAPER PENDING"}</span>'
+            f'  <span style="color:#666;font-size:0.65rem;margin-left:4px;">{_bayt["last_fetch"]}</span>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+        st.caption("Personal research only. Not financial advice.")
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    df         = load_daily_metrics(days=lookback)
-    anomaly_df = load_anomaly_log()
+    selected_areas = st.session_state.selected_areas
+    df             = load_daily_metrics(days=lookback)
+    anomaly_df     = _anomaly_full
 
     if df.empty:
-        st.warning("⚠️ No data in database yet.")
-        st.info("Run `python seed_data.py` in your terminal to load mock data.")
-        return
+        st.warning("⚠️ No transactions recorded for the selected areas.")
+        st.info(
+            "Open **🛠️ ADMIN: OFFICIAL DATA SYNC** in the sidebar and click "
+            "**PURGE & SYNC** to fetch real Dubai Land Department data — or "
+            "**🧪 Load demo data** to try the dashboard with realistic test data."
+        )
+        st.stop()
+
 
     if not selected_areas:
         st.markdown("## 👈 Select areas to get started")
         st.markdown(
-            "Use the **Areas to watch** filter in the sidebar to choose one or more areas. "
-            "Charts and signals will appear once you make a selection."
+            "Click an area in the sidebar list to activate it. "
+            "Use **Select All** to see all areas at once."
         )
         col1, col2, col3 = st.columns(3)
         col1.info("📉 Buy Signals\nDetected when volume or price drops below trend")
@@ -421,19 +915,57 @@ def main() -> None:
         st.stop()
 
     df["date"] = pd.to_datetime(df["date"])
-    if selected_areas:
-        df         = df[df["area"].isin(selected_areas)]
-        anomaly_df = anomaly_df[anomaly_df["area"].isin(selected_areas)]
+    df         = df[df["area"].isin(selected_areas)]
+    anomaly_df = anomaly_df[anomaly_df["area"].isin(selected_areas)]
 
     latest_by_area = df.sort_values("date").groupby("area").last().reset_index()
-    latest_date    = df["date"].max().strftime("%d %B %Y")
+    latest_date    = df["date"].max().strftime("%d %B %Y") if not df.empty else "N/A"
 
-    # ── Page header ───────────────────────────────────────────────────────────
-    st.title("🏙️ Dubai Real Estate Monitor")
-    _proj_label = f" · 🏢 Focused on **{selected_project}**" if selected_project else ""
-    st.caption(f"Data through **{latest_date}** · {len(selected_areas)} areas monitored · Under AED 2M residential{_proj_label}")
+    # ── Pre-compute area trends (used in Snapshot cards + Buy Signals tab) ────
+    _p2025_data: dict[str, float] = load_2025_avg_price()
+    area_trends: dict[str, dict] = {}
+    for _area in df["area"].unique():
+        _adf = df[df["area"] == _area].sort_values("date")
+        _t: dict = {"price_7d_chg": None, "listings_7d_chg": None, "yoy_pct": None}
+        if len(_adf) >= 2:
+            _latest = _adf.iloc[-1]
+            _max_dt = _adf["date"].max()
+            _old    = _adf[_adf["date"] <= _max_dt - pd.Timedelta(days=7)]
+            if not _old.empty:
+                _old_r = _old.iloc[-1]
+                if pd.notna(_latest["price_sqm"]) and pd.notna(_old_r["price_sqm"]) and _old_r["price_sqm"] > 0:
+                    _t["price_7d_chg"] = (_latest["price_sqm"] - _old_r["price_sqm"]) / _old_r["price_sqm"] * 100
+                if pd.notna(_latest["listings"]) and pd.notna(_old_r["listings"]) and _old_r["listings"] > 0:
+                    _t["listings_7d_chg"] = (_latest["listings"] - _old_r["listings"]) / _old_r["listings"] * 100
+            _p2025 = _p2025_data.get(_area)
+            _ma30  = _latest["price_sqm_ma30"]
+            if pd.notna(_ma30) and _p2025 and _p2025 > 0:
+                _t["yoy_pct"] = (_ma30 - _p2025) / _p2025 * 100
+        area_trends[_area] = _t
 
-    # ── Active signals banner ─────────────────────────────────────────────────
+    # ── Page header + pill nav ───────────────────────────────────────────────────────────────────────
+    _hdr_l, _hdr_r = st.columns([5, 4])
+    with _hdr_l:
+        _zone_count = len(selected_areas)
+        _proj_sub   = f"  ·  🏢 {selected_project}" if selected_project else ""
+        st.markdown(
+            '<h1 style="font-family:Inter,sans-serif;font-size:2.0rem;font-weight:800;'
+            'letter-spacing:-0.9px;margin:0 0 4px;line-height:1.05;color:#F0F0F0;">'
+            'Market Intelligence'
+            '</h1>'
+            f'<p style="color:#555;font-size:0.84rem;font-weight:400;margin:0 0 2px;">'
+            f'Real-time analysis of {_zone_count} active zone{"s" if _zone_count != 1 else ""}'
+            f'{_proj_sub}'
+            f'</p>',
+            unsafe_allow_html=True,
+        )
+    with _hdr_r:
+        _nav = st.radio(
+            "nav", ["Snapshot", "Trends", "Signals", "Deep-dive", "Buy decision"],
+            horizontal=True, label_visibility="collapsed", key="main_nav",
+        )
+
+    # ── Active signals banner ───────────────────────────────────────────────────────────────────────────
     if not anomaly_df.empty:
         strong_areas = anomaly_df[anomaly_df["signal_type"] == "STRONG_BUY"]["area"].unique().tolist()
         other_areas  = anomaly_df[
@@ -443,77 +975,149 @@ def main() -> None:
         if strong_areas:
             st.error(
                 f"🚨 **Strong Buy signal active** in **{', '.join(strong_areas)}** — "
-                "open the Buy Signals tab for details."
+                "open the Signals tab for details."
             )
         elif other_areas:
             st.warning(
                 f"📊 **Buy signals detected** in {len(other_areas)} area(s): "
-                f"**{', '.join(other_areas)}** — see the Buy Signals tab."
+                f"**{', '.join(other_areas)}** — see the Signals tab."
             )
     else:
         st.success("✅ No active signals — market looks normal across all monitored areas.")
 
     st.divider()
 
-    # ── Area status cards ─────────────────────────────────────────────────────
-    st.markdown("### Area Snapshot")
-    st.caption("Each card shows the most recent day's data. Colour indicates signal status.")
+    # ── Nav routing ──────────────────────────────────────────────────────────────────────────────────
+    if _nav == "Snapshot":
+        # ── Area Snapshot cards (stacked metric rows, mockup design) ──────────────────────
+        areas_to_show = [a for a in selected_areas if a in latest_by_area["area"].values]
 
-    areas_to_show = [a for a in selected_areas if a in latest_by_area["area"].values]
-    CARDS_PER_ROW = 4
+        def _snapshot_card_html(area: str) -> str:
+            """Build HTML for a single area snapshot card — stacked metrics with separator lines."""
+            _row     = latest_by_area[latest_by_area["area"] == area].iloc[0]
+            _status  = area_signal_status(area, anomaly_df)
+            _price   = _row["price_sqm"]
+            _vol     = int(_row["volume"]) if pd.notna(_row["volume"]) else 0
+            _vol_ma  = _row["volume_ma7"]
+            _lists   = int(_row["listings"]) if pd.notna(_row["listings"]) else 0
+            _trends  = area_trends.get(area, {})
 
-    for row_start in range(0, len(areas_to_show), CARDS_PER_ROW):
-        row_areas = areas_to_show[row_start:row_start + CARDS_PER_ROW]
-        cols = st.columns(len(row_areas))
-
-        for col, area in zip(cols, row_areas):
-            row      = latest_by_area[latest_by_area["area"] == area].iloc[0]
-            status   = area_signal_status(area, anomaly_df)
-            price    = f"AED {row['price_sqm']:,.0f}/m²" if pd.notna(row["price_sqm"]) else "—"
-            vol      = int(row["volume"]) if pd.notna(row["volume"]) else 0
-            vol_ma   = row["volume_ma7"]
-
-            if pd.notna(vol_ma) and vol_ma > 0:
-                pct      = (vol - vol_ma) / vol_ma * 100
-                delta    = f"{pct:+.0f}% vs 7d avg  ({vol} txns today)"
-                d_color  = "normal"
+            # Accent colour by signal status
+            if _status == "strong":
+                _accent = "#FF5500"
+            elif _status == "signal":
+                _accent = "#FF9955"
             else:
-                delta    = f"{vol} txns today"
-                d_color  = "off"
+                _accent = "#3B82F6"
 
-            if status == "strong":
-                icon, help_text = "🚨", "Strong Buy signal — see Buy Signals tab"
-            elif status == "signal":
-                icon, help_text = "📉", "Signal detected — see Buy Signals tab"
-            else:
-                icon, help_text = "✅", "No active signals"
-
-            short = area.replace("Dubai ", "").replace("Arabian ", "")
-            with col:
-                st.metric(
-                    label       = f"{icon} {short}",
-                    value       = price,
-                    delta       = delta,
-                    delta_color = d_color,
-                    help        = help_text,
+            # Volume delta badge
+            if pd.notna(_vol_ma) and _vol_ma > 0:
+                _vpct = (_vol - _vol_ma) / _vol_ma * 100
+                _vup  = _vpct >= 0
+                _vbg  = "#001A0A" if _vup else "#1A0500"
+                _vc   = "#4ade80" if _vup else "#FF5555"
+                _varr = "↗" if _vup else "↘"
+                _vbadge = (
+                    f'<span class="snap-badge" style="background:{_vbg};border:1px solid {_vc}33;color:{_vc};'
+                    f'padding:4px 12px;border-radius:6px;font-size:0.76rem;font-weight:700;">'
+                    f'{_varr} {abs(_vpct):.1f}%</span>'
                 )
+            else:
+                _vbadge = '<span style="color:#333;font-size:0.76rem;">—</span>'
 
-    st.divider()
+            # Price delta badge
+            _p7d = _trends.get("price_7d_chg")
+            if _p7d is not None:
+                _pup  = _p7d >= 0
+                _pbg  = "#001A0A" if _pup else "#1A0500"
+                _pc   = "#4ade80" if _pup else "#FF5555"
+                _parr = "↗" if _pup else "↘"
+                _pbadge = (
+                    f'<span class="snap-badge" style="background:{_pbg};border:1px solid {_pc}33;color:{_pc};'
+                    f'padding:4px 12px;border-radius:6px;font-size:0.76rem;font-weight:700;">'
+                    f'{_parr} {abs(_p7d):.1f}%</span>'
+                )
+            else:
+                _pbadge = '<span style="color:#333;font-size:0.76rem;">—</span>'
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Market Trends",
-        "🎯 Buy Signals",
-        "🏘️ Areas Deep-Dive",
-        "⚙️ Settings",
-    ])
+            _short     = area.replace("Dubai ", "").replace("Arabian ", "")
+            _price_str = f"{_price:,.0f}" if pd.notna(_price) else "—"
+            _border    = f"1px solid {_accent}44"
 
-    # ── Tab 1: Market Trends ──────────────────────────────────────────────────
-    with tab1:
-        # Stress-period shading (used on both charts)
-        stress_start = pd.Timestamp("2026-02-15")
-        stress_end   = pd.Timestamp("2026-02-25")
-        show_stress  = df["date"].min() <= stress_end and df["date"].max() >= stress_start
+            # Pulse / heartbeat SVG icon
+            _pulse_svg = (
+                f'<svg width="26" height="15" viewBox="0 0 52 22" fill="none" '
+                f'xmlns="http://www.w3.org/2000/svg">'
+                f'<polyline points="0,11 8,11 13,2 17,20 22,6 26,16 30,11 52,11" '
+                f'stroke="{_accent}" stroke-width="2.5" fill="none" '
+                f'stroke-linejoin="round" stroke-linecap="round"/>'
+                f'</svg>'
+            )
+
+            return (
+                f'<html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+                f'<style>@import url(\'https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800'
+                f'&family=JetBrains+Mono:wght@700&display=swap\');'
+                f'@media(max-width:420px){{.snap-val{{font-size:1.2rem!important;}}'
+                f'.snap-card{{padding:14px 14px!important;}}'
+                f'.snap-badge{{padding:3px 8px!important;font-size:0.7rem!important;}}'
+                f'}}</style>'
+                f'</head><body style="margin:0;padding:4px 2px;background:#050505;'
+                f'font-family:\'Inter\',-apple-system,sans-serif;">'
+                f'<div style="background:#0D0D0D;border-radius:12px;border:{_border};'
+                f'overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.7);">'
+                f'<div style="height:2px;background:linear-gradient(90deg,{_accent},{_accent}11);"></div>'
+                f'<div class="snap-card" style="padding:18px 20px 18px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">'
+                f'<span style="font-size:0.95rem;font-weight:700;color:#F0F0F0;letter-spacing:-0.1px;">{_short}</span>'
+                f'{_pulse_svg}'
+                f'</div>'
+                f'<div style="margin-bottom:14px;">'
+                f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
+                f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">VOLUME (24H)</div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span class="snap-val" style="font-size:1.65rem;font-weight:800;color:#F0F0F0;'
+                f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_vol}</span>'
+                f'{_vbadge}'
+                f'</div></div>'
+                f'<div style="border-top:1px solid #1A1A1A;margin-bottom:14px;"></div>'
+                f'<div style="margin-bottom:14px;">'
+                f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
+                f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">PRICE / M²</div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span class="snap-val" style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
+                f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_price_str}</span>'
+                f'{_pbadge}'
+                f'</div></div>'
+                f'<div style="border-top:1px solid #1A1A1A;margin-bottom:14px;"></div>'
+                f'<div>'
+                f'<div style="color:#444;font-size:0.62rem;text-transform:uppercase;'
+                f'letter-spacing:1.2px;font-weight:700;margin-bottom:7px;">ACTIVE LISTINGS</div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span class="snap-val" style="font-size:1.4rem;font-weight:800;color:#F0F0F0;'
+                f'font-family:\'JetBrains Mono\'  ,monospace;line-height:1;">{_lists}</span>'
+                f'<span style="background:#1A0000;border:1px solid #FF333344;color:#FF4444;'
+                f'padding:4px 10px;border-radius:6px;font-size:0.62rem;font-weight:700;'
+                f'letter-spacing:0.9px;">⬤ LIVE</span>'
+                f'</div></div>'
+                f'</div></div>'
+                f'</body></html>'
+            )
+
+        for _row_start in range(0, len(areas_to_show), 2):
+            _pair = areas_to_show[_row_start:_row_start + 2]
+            _snap_cols = st.columns(len(_pair))
+            for _sc, _area in zip(_snap_cols, _pair):
+                with _sc:
+                    render_html_card(_snapshot_card_html(_area), height=272)
+
+    elif _nav == "Trends":
+        # Stress-period shading — demo data only (the seed simulates a dip
+        # over the last few days of the data)
+        from seed_data import STRESS_DAYS
+        stress_end   = df["date"].max()
+        stress_start = stress_end - pd.Timedelta(days=STRESS_DAYS - 1)
+        show_stress  = _demo_mode
 
         col_l, col_r = st.columns(2)
 
@@ -538,17 +1142,21 @@ def main() -> None:
             if show_stress:
                 fig_vol.add_vrect(
                     x0=stress_start, x1=stress_end,
-                    fillcolor="#fc8181", opacity=0.07, layer="below", line_width=0,
+                    fillcolor="#FF5500", opacity=0.07, layer="below", line_width=0,
                     annotation_text="Market stress", annotation_position="top left",
-                    annotation_font=dict(size=10, color="#fc8181"),
+                    annotation_font=dict(size=10, color="#FF5500"),
                 )
             fig_vol.update_layout(
                 template=config.CHART_THEME, height=370,
                 margin=dict(l=0, r=0, t=10, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11, font_color="#888"),
                 xaxis_title=None, yaxis_title="Transactions / day",
+                paper_bgcolor="#050505", plot_bgcolor="#0A0A0A",
+                font=dict(color="#AAA", family="Inter, sans-serif"),
+                xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+                yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
-            st.plotly_chart(fig_vol, use_container_width=True)
+            st.plotly_chart(fig_vol, width="stretch")
 
         with col_r:
             st.subheader("Average Price per m² (AED)")
@@ -574,15 +1182,19 @@ def main() -> None:
             if show_stress:
                 fig_price.add_vrect(
                     x0=stress_start, x1=stress_end,
-                    fillcolor="#fc8181", opacity=0.07, layer="below", line_width=0,
+                    fillcolor="#FF5500", opacity=0.07, layer="below", line_width=0,
                 )
             fig_price.update_layout(
                 template=config.CHART_THEME, height=370,
                 margin=dict(l=0, r=0, t=10, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11, font_color="#888"),
                 xaxis_title=None, yaxis_title="AED / m²",
+                paper_bgcolor="#050505", plot_bgcolor="#0A0A0A",
+                font=dict(color="#AAA", family="Inter, sans-serif"),
+                xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+                yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
-            st.plotly_chart(fig_price, use_container_width=True)
+            st.plotly_chart(fig_price, width="stretch")
 
         if df["listings"].notna().any():
             st.subheader("Active Listings on Bayut")
@@ -599,11 +1211,14 @@ def main() -> None:
                 template=config.CHART_THEME, height=250, barmode="stack",
                 margin=dict(l=0, r=0, t=10, b=0),
                 xaxis_title=None, yaxis_title="Active listings",
+                paper_bgcolor="#050505", plot_bgcolor="#0A0A0A",
+                font=dict(color="#AAA", family="Inter, sans-serif"),
+                xaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
+                yaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
             )
-            st.plotly_chart(fig_supply, use_container_width=True)
+            st.plotly_chart(fig_supply, width="stretch")
 
-    # ── Tab 2: Buy Signals ────────────────────────────────────────────────────
-    with tab2:
+    elif _nav == "Signals":
         if anomaly_df.empty:
             st.info("No signals recorded yet. They'll appear here when the market shows anomalies.")
             st.markdown("""
@@ -635,33 +1250,12 @@ def main() -> None:
             )
             filtered = anomaly_df[anomaly_df["signal_type"].isin(sig_filter)]
 
-            # ── Per-area 7-day trends + YoY (used in signal + summary cards) ──
-            _p2025_data = load_2025_avg_price()
-            area_trends: dict[str, dict] = {}
-            for _area in df["area"].unique():
-                _adf = df[df["area"] == _area].sort_values("date")
-                _t: dict = {"price_7d_chg": None, "listings_7d_chg": None, "yoy_pct": None}
-                if len(_adf) >= 2:
-                    _latest = _adf.iloc[-1]
-                    _max_dt = _adf["date"].max()
-                    _old    = _adf[_adf["date"] <= _max_dt - pd.Timedelta(days=7)]
-                    if not _old.empty:
-                        _old_r = _old.iloc[-1]
-                        if pd.notna(_latest["price_sqm"]) and pd.notna(_old_r["price_sqm"]) and _old_r["price_sqm"] > 0:
-                            _t["price_7d_chg"] = (_latest["price_sqm"] - _old_r["price_sqm"]) / _old_r["price_sqm"] * 100
-                        if pd.notna(_latest["listings"]) and pd.notna(_old_r["listings"]) and _old_r["listings"] > 0:
-                            _t["listings_7d_chg"] = (_latest["listings"] - _old_r["listings"]) / _old_r["listings"] * 100
-                    _p2025 = _p2025_data.get(_area)
-                    _ma30  = _latest["price_sqm_ma30"]
-                    if pd.notna(_ma30) and _p2025 and _p2025 > 0:
-                        _t["yoy_pct"] = (_ma30 - _p2025) / _p2025 * 100
-                area_trends[_area] = _t
-
             if filtered.empty:
                 st.info("No signals match the selected filters.")
             else:
                 st.markdown(f"**{len(filtered)} signal(s)** across **{filtered['area'].nunique()} area(s)** — most recent first")
 
+                _all_signal_cards: list[tuple[str, int]] = []
                 for _, row in filtered.iterrows():
                     sig   = row["signal_type"]
                     color = SIGNAL_COLORS.get(sig, "#4a5568")
@@ -738,10 +1332,10 @@ def main() -> None:
 
                     n_cols = max(1, len(cells))
                     stats_cells_html = "".join(
-                        f'<div style="background:#1a2035;padding:13px 15px;border-radius:8px;">'
-                        f'<div style="color:#64748b;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:7px;font-weight:600;">{cl}</div>'
-                        f'<div style="color:{color};font-size:1.1rem;font-weight:700;line-height:1;">{cv}</div>'
-                        f'<div style="color:#475569;font-size:0.73rem;margin-top:5px;">{cs}</div>'
+                        f'<div style="background:#111;padding:14px 16px;border-radius:6px;border:1px solid #2A2A2A;">'
+                        f'<div style="color:#888;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.9px;margin-bottom:8px;font-weight:600;font-family:\'JetBrains Mono\',monospace;">{cl}</div>'
+                        f'<div style="color:{color};font-size:1.15rem;font-weight:700;line-height:1;font-family:\'JetBrains Mono\',monospace;">{cv}</div>'
+                        f'<div style="color:#999;font-size:0.78rem;margin-top:6px;">{cs}</div>'
                         f'</div>'
                         for cl, cv, cs in cells
                     )
@@ -788,54 +1382,77 @@ def main() -> None:
                     pills: list[str] = []
                     if _yoy is not None:
                         _ya = "▲" if _yoy >= 0 else "▼"
-                        _yc = "#f6ad55" if _yoy >= 0 else "#68d391"
+                        _yc = "#FF7733" if _yoy >= 0 else "#FFAA77"
                         pills.append(
-                            f'<span style="background:#1e293b;border:1px solid #334155;color:{_yc};'
-                            f'padding:4px 12px;border-radius:20px;font-size:0.73rem;font-weight:600;white-space:nowrap;">'
-                            f'📈 {_ya} {abs(_yoy):.1f}% vs 2025</span>'
+                            f'<span style="background:#1A1A1A;border:1px solid #333;color:{_yc};'
+                            f'padding:5px 13px;border-radius:20px;font-size:0.78rem;font-weight:600;white-space:nowrap;">'
+                            f'📈 {_ya} {abs(_yoy):.1f}% vs {PREV_YEAR}</span>'
                         )
                     if _p7d is not None and _p7d < 0 and _l7d is not None and _l7d > 0:
                         pills.append(
-                            f'<span style="background:#0f2318;border:1px solid #166534;color:#86efac;'
-                            f'padding:4px 12px;border-radius:20px;font-size:0.73rem;font-weight:600;white-space:nowrap;">'
+                            f'<span style="background:#1A0800;border:1px solid #FF550066;color:#FFBB88;'
+                            f'padding:5px 13px;border-radius:20px;font-size:0.78rem;font-weight:600;white-space:nowrap;">'
                             f'⚡ Prices &#8722;{abs(_p7d):.1f}% &amp; Listings +{_l7d:.1f}% this week</span>'
                         )
-                    _ac = "#4ade80" if row["alert_sent"] else "#64748b"
+                    _ac = "#FFAA77" if row["alert_sent"] else "#666"
                     _at = "✅ Alert sent" if row["alert_sent"] else "📭 No alert"
-                    pills.append(f'<span style="color:{_ac};font-size:0.73rem;">{_at} &nbsp;·&nbsp; {detected_str}</span>')
+                    pills.append(f'<span style="color:{_ac};font-size:0.78rem;font-weight:500;">{_at} &nbsp;·&nbsp; {detected_str}</span>')
                     footer_html = " ".join(pills)
 
-                    # -- Card height estimate
-                    tip_rows = max(2, len(broker_tip) // 88)
-                    card_h   = 305 + tip_rows * 21 + (38 if _yoy is not None else 0)
+                    # -- Card height estimate (mobile wraps more → add buffer)
+                    tip_rows = max(2, len(broker_tip) // 72)
+                    card_h   = 330 + tip_rows * 21 + (38 if _yoy is not None else 0)
 
-                    card_html = f"""<html><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<div style="background:#0f172a;border-radius:14px;overflow:hidden;border:1px solid #1e293b;box-shadow:0 4px 24px rgba(0,0,0,0.6);">
-  <div style="height:4px;background:linear-gradient(90deg,{color},{color}66);"></div>
-  <div style="padding:18px 22px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+                    card_html = f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * {{ box-sizing: border-box; }}
+  .stats-grid {{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;padding:0 22px 16px;}}
+  @media(max-width:420px){{
+    .card-header{{flex-direction:column!important;}}
+    .area-title{{font-size:1.05rem!important;}}
+    .broker-box{{padding:11px 12px!important;margin:0 12px 14px!important;}}
+    .stats-grid{{padding:0 12px 12px!important;grid-template-columns:1fr!important;gap:5px!important;}}
+    .stats-grid > div{{padding:10px 12px!important;}}
+    .card-header-wrap{{padding:14px 14px 10px!important;}}
+    .explain-wrap{{padding:4px 14px 14px!important;}}
+    .footer-wrap{{padding:0 14px 14px!important;}}
+    .footer-wrap span{{font-size:0.7rem!important;}}
+  }}
+</style></head><body style="margin:0;padding:6px 2px;background:#050505;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="background:#0D0D0D;border-radius:10px;overflow:hidden;border:1px solid #2A2A2A;box-shadow:0 4px 32px rgba(0,0,0,0.8);">
+  <div style="height:3px;background:linear-gradient(90deg,{color},{color}44);"></div>
+  <div class="card-header card-header-wrap" style="padding:20px 24px 14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
     <div>
-      <div style="font-size:1.25rem;font-weight:800;color:#f1f5f9;letter-spacing:-0.4px;">{area}</div>
-      <div style="font-size:0.77rem;color:#64748b;margin-top:4px;font-weight:500;">{detected_str}{(' &nbsp;·&nbsp; ' + dev_str) if dev_str else ''}</div>
+      <div class="area-title" style="font-size:1.3rem;font-weight:800;color:#F0F0F0;letter-spacing:-0.4px;font-family:'Inter',sans-serif;">{area}</div>
+      <div style="font-size:0.82rem;color:#888;margin-top:5px;font-weight:400;">{detected_str}{(' &nbsp;·&nbsp; ' + dev_str) if dev_str else ''}</div>
     </div>
-    <div style="background:{color}18;border:1.5px solid {color}44;color:{color};padding:5px 15px;border-radius:20px;font-size:0.76rem;font-weight:700;letter-spacing:0.3px;white-space:nowrap;margin-top:2px;">
+    <div style="background:{color}18;border:1.5px solid {color}66;color:{color};padding:6px 16px;border-radius:20px;font-size:0.76rem;font-weight:700;letter-spacing:0.6px;white-space:nowrap;margin-top:2px;text-transform:uppercase;">
       {label}
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat({n_cols},1fr);gap:6px;padding:0 22px 16px;">
+  <div class="stats-grid">
     {stats_cells_html}
   </div>
-  <div style="padding:0 22px 16px;">
-    <div style="color:#94a3b8;font-size:0.86rem;line-height:1.8;">{explain}</div>
+  <div class="explain-wrap" style="padding:4px 24px 18px;">
+    <div style="color:#BBB;font-size:0.88rem;line-height:1.85;">{explain}</div>
   </div>
-  <div style="margin:0 22px 16px;background:#0c1c33;border-left:3px solid #3b82f6;border-radius:0 10px 10px 0;padding:13px 16px;">
-    <div style="color:#60a5fa;font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;margin-bottom:9px;">💬 Your Broker Script</div>
-    <div style="color:#93c5fd;font-size:0.84rem;line-height:1.8;font-style:italic;">{broker_tip}</div>
+  <div class="broker-box" style="margin:0 24px 18px;background:#110900;border-left:3px solid #FF5500;border-radius:0 8px 8px 0;padding:14px 18px;">
+    <div style="color:#FF5500;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1.3px;margin-bottom:10px;font-family:'Inter',sans-serif;">💬 YOUR BROKER SCRIPT</div>
+    <div style="color:#FFBB88;font-size:0.88rem;line-height:1.85;font-style:italic;">{broker_tip}</div>
   </div>
-  <div style="padding:0 22px 18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+  <div class="footer-wrap" style="padding:0 24px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
     {footer_html}
   </div>
 </div></body></html>"""
-                    components.html(card_html, height=card_h, scrolling=False)
+                    _all_signal_cards.append((card_html, card_h))
+
+                # Render cards in 2-column grid
+                for _ci in range(0, len(_all_signal_cards), 2):
+                    _pair = _all_signal_cards[_ci:_ci + 2]
+                    _sig_cols = st.columns(len(_pair))
+                    for _sc, (_chtml, _ch) in zip(_sig_cols, _pair):
+                        with _sc:
+                            render_html_card(_chtml, height=_ch)
 
             st.divider()
 
@@ -890,7 +1507,7 @@ def main() -> None:
                     xaxis=dict(tickangle=-45, tickfont=dict(size=10), side="bottom"),
                     yaxis=dict(tickfont=dict(size=11), autorange="reversed"),
                 )
-                st.plotly_chart(fig_cal, use_container_width=True)
+                st.plotly_chart(fig_cal, width="stretch")
 
             except Exception as e:
                 import traceback
@@ -907,34 +1524,97 @@ def main() -> None:
                 mime="text/csv",
             )
 
-    # ── Tab 3: Areas Deep-Dive ────────────────────────────────────────────────
-    with tab3:
-        col_a, col_b = st.columns(2)
+    elif _nav == "Buy decision":
+        from decision import ALL, break_even_note
+        _sc, _per = load_scorecard()
+        st.markdown("### Should I buy now? — the evidence on timing")
+        st.caption(
+            f"Compares the last 3 full months (**{_per['label_recent']}**) with the 3 months before "
+            f"(**{_per['label_prior']}**), using DLD sales under AED {config.MAX_PRICE_AED / 1e6:.0f}M "
+            "(land plots and implausible records left out). "
+            "**Resale = ready homes**: off-plan prices are set by developers and can hide what the "
+            "resale market is doing. This is evidence, not financial advice."
+        )
+        if _demo_mode:
+            st.warning("🧪 Demo data loaded — this scorecard is NOT based on real sales.")
+        if _sc.empty:
+            st.info("No sales data yet — sync DLD data first.")
+        else:
+            _fmt = lambda v: "—" if v is None or pd.isna(v) else f"{v:+.1f}%"
+            _show = [a for a in selected_areas if a in _sc.index] + ([ALL] if ALL in _sc.index else [])
+            for _a in _show:
+                _r = _sc.loc[_a]
+                with st.container(border=True):
+                    st.markdown(f"**{_a}** &nbsp;—&nbsp; {_r['lean']}")
+                    _c = st.columns(5)
+                    _c[0].metric("Resale price, 3 mo", _fmt(_r["resale_3m_chg"]),
+                                 help="Change in the median ready-home AED/m², last 3 months vs the 3 before")
+                    _c[1].metric("vs this year's high", _fmt(_r["from_peak"]),
+                                 help="Resale median now vs the highest month this year")
+                    _c[2].metric("Buyer activity", _fmt(_r["activity_chg"]),
+                                 help="Number of sales, last 3 months vs the 3 before")
+                    _c[3].metric("Off-plan premium", _fmt(_r["offplan_premium"]),
+                                 help="How much more off-plan costs per m² than resale right now")
+                    _share = _r["offplan_share"]
+                    _c[4].metric("Off-plan share", "—" if _share is None or pd.isna(_share) else f"{_share:.0f}%",
+                                 help="Share of recent sales that are off-plan = future handovers")
+                    st.caption(f"Confidence: **{_r['confidence']}** "
+                               f"({int(_r['ready_sales_3m'])} resale sales in the last 3 months)")
+                    for _w in _r["why"]:
+                        st.markdown(f"- {_w}")
+            st.info("💡 " + break_even_note())
+            with st.expander("How to read this"):
+                st.markdown(f"""
+- **🔴 Wait — still falling**: resale prices fell more than {abs(config.DECISION_FALLING_PCT):.0f}% in 3 months and the fall isn't clearly slowing. Buying now risks paying more than in a few months.
+- **🟡 Window may be opening**: still falling, but the fall is slowing *and* buyers are returning — often what a bottom looks like.
+- **🟢 Levelling off / Recovering from a dip**: resale is {abs(config.DECISION_DEEP_DROP_PCT):.0f}%+ below this year's high and has stopped falling (or started rising) — discounted prices with the fall behind it.
+- **🟠 Stable / Rising**: no meaningful discount on offer right now.
+- **⚪ Not enough data**: fewer than {config.DECISION_MIN_READY_SALES} resale sales in 3 months.
 
-        with col_a:
-            fig_heat = px.bar(
-                latest_by_area.sort_values("price_sqm", ascending=True),
-                x="price_sqm", y="area", orientation="h",
-                color="price_sqm", color_continuous_scale="Blues",
-                labels={"price_sqm": "AED / m²", "area": ""},
-                title="Price per m² — Most Recent Day",
-                template=config.CHART_THEME,
-            )
-            fig_heat.update_layout(height=360, margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(fig_heat, use_container_width=True)
+Thresholds are in `config.py` (`DECISION_*`). Areas with few sales jump around — trust "High" confidence most.
+""")
 
-        with col_b:
-            fig_vol_bar = px.bar(
-                latest_by_area.sort_values("volume", ascending=True),
-                x="volume", y="area", orientation="h",
-                color="volume", color_continuous_scale="Greens",
-                labels={"volume": "Transactions", "area": ""},
-                title="Transaction Volume — Most Recent Day",
-                template=config.CHART_THEME,
-            )
-            fig_vol_bar.update_layout(height=360, margin=dict(l=0, r=0, t=40, b=0))
-            st.plotly_chart(fig_vol_bar, use_container_width=True)
+    elif _nav == "Deep-dive":
+        # ── Orange filled price-over-time area chart ──────────────────────────
+        st.markdown(
+            '<h4 style="font-size:0.88rem;font-weight:700;color:#888;text-transform:uppercase;'
+            'letter-spacing:1px;margin:0 0 4px;">PRICE TREND — AED/M²</h4>',
+            unsafe_allow_html=True,
+        )
+        # (r,g,b) tuples for palette — used for rgba fillcolor
+        _AREA_PALETTE_RGB = [
+            (255, 85,  0),  (255, 119, 51), (255, 153, 85), (255, 170, 119), (255, 187, 153),
+            (204, 68,  0),  (255, 102, 34), (255, 136, 68), (255, 160, 102), (255, 181, 136),
+        ]
+        fig_trend = go.Figure()
+        for _i, _area in enumerate(sorted(df["area"].unique())):
+            _adf = df[df["area"] == _area].sort_values("date")
+            _r, _g, _b = _AREA_PALETTE_RGB[_i % len(_AREA_PALETTE_RGB)]
+            _clr  = f"rgb({_r},{_g},{_b})"
+            _fill = f"rgba({_r},{_g},{_b},0.06)"
+            fig_trend.add_trace(go.Scatter(
+                x=_adf["date"], y=_adf["price_sqm"],
+                name=_area.replace("Dubai ", "").replace("Arabian ", ""),
+                mode="lines",
+                line=dict(color=_clr, width=1.8),
+                fill="tozeroy",
+                fillcolor=_fill,
+                hovertemplate=f"<b>{_area}</b><br>%{{x|%d %b %Y}}<br>AED %{{y:,.0f}}/m²<extra></extra>",
+            ))
+        fig_trend.update_layout(
+            template=config.CHART_THEME,
+            height=320,
+            margin=dict(l=0, r=0, t=10, b=0),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=10, font_color="#777"),
+            xaxis_title=None, yaxis_title="AED / m²",
+            paper_bgcolor="#050505", plot_bgcolor="#0A0A0A",
+            font=dict(color="#AAA", family="Inter, sans-serif"),
+            xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+            yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+        )
+        st.plotly_chart(fig_trend, width="stretch")
 
+        st.divider()
         st.subheader("Full Area Summary")
         st.caption(
             f"Snapshot as of **{latest_date}** · "
@@ -956,12 +1636,12 @@ def main() -> None:
             "Sale Price / m² (today, DLD)":    src["price_sqm"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—"),
             "Avg Sale Price / m² (30d, DLD)":  src["price_sqm_ma30"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—"),
             "Bayut For-Sale Listings":         src["listings"].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—"),
-            "2025 Avg Sale Price / m² (DLD)":  src["p2025"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "— (no data)"),
-            "YoY vs 2025 (30d avg)":           src["yoy_pct"].apply(
+            f"{PREV_YEAR} Avg Sale Price / m² (DLD)":  src["p2025"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "— (no data)"),
+            f"YoY vs {PREV_YEAR} (30d avg)":           src["yoy_pct"].apply(
                 lambda x: f"{'▲' if x >= 0 else '▼'} {abs(x):.1f}%" if pd.notna(x) else "—"
             ),
         })
-        st.dataframe(out, use_container_width=True, hide_index=True)
+        st.dataframe(out, width="stretch", hide_index=True)
 
         # ── Project Deep-Dive ─────────────────────────────────────────────────
         st.divider()
@@ -1001,12 +1681,16 @@ def main() -> None:
                 max_px = proj_df["price_sqm"].max()
                 avg_sz = proj_df["area_sqm"].mean()
 
-                pm1, pm2, pm3, pm4 = st.columns(4)
-                pm1.metric("Transactions", f"{n_tx}", help=f"Last {lookback} days")
-                pm2.metric("Avg Price / m²", f"AED {avg_px:,.0f}" if pd.notna(avg_px) else "—")
-                pm3.metric("Price Range / m²",
-                           f"AED {min_px:,.0f} – {max_px:,.0f}" if pd.notna(min_px) else "—")
-                pm4.metric("Avg Unit Size", f"{avg_sz:,.0f} m²" if pd.notna(avg_sz) else "—")
+                # ── 2-col layout: left = chart/stats, right = buy target ─────
+                _dd_left, _dd_right = st.columns([3, 2])
+
+                with _dd_left:
+                    pm1, pm2, pm3, pm4 = st.columns(4)
+                    pm1.metric("Transactions", f"{n_tx}", help=f"Last {lookback} days")
+                    pm2.metric("Avg Price / m²", f"AED {avg_px:,.0f}" if pd.notna(avg_px) else "—")
+                    pm3.metric("Price Range / m²",
+                               f"AED {min_px:,.0f} – {max_px:,.0f}" if pd.notna(min_px) else "—")
+                    pm4.metric("Avg Unit Size", f"{avg_sz:,.0f} m²" if pd.notna(avg_sz) else "—")
 
                 # ── Expert Buy Target Recommendation (multi-factor) ───────────
                 # 30-day rolling avg from project's own DLD transactions
@@ -1051,206 +1735,200 @@ def main() -> None:
 
                 # Accent colour by signal
                 _ACCENT_MAP = {
-                    "STRONG_BUY":   "#fc8181",
-                    "VOLUME_DROP":  "#f6ad55",
-                    "PRICE_DIP":    "#68d391",
-                    "SUPPLY_SURGE": "#76e4f7",
-                    None:           "#6366f1",
+                    "STRONG_BUY":   "#FF5500",
+                    "VOLUME_DROP":  "#FF7733",
+                    "PRICE_DIP":    "#FF9955",
+                    "SUPPLY_SURGE": "#FFAA77",
+                    None:           "#FF5500",
                 }
                 _accent = _ACCENT_MAP.get(_active_sig, "#6366f1")
 
-                # Factor breakdown rows
-                _factor_rows = ""
+                # ── Factor bar chart rows (name + mini bar + % — no paragraph text) ──
+                _max_factor = max((abs(v) for v, _ in _rec["breakdown"].values()), default=1.0) or 1.0
+                _factor_bars_html = ""
                 for _fname, (_fadj, _flabel) in _rec["breakdown"].items():
-                    _sign  = "+" if _fadj > 0 else ("−" if _fadj < 0 else "")
-                    _fcolor = "#68d391" if _fadj > 0 else ("#f6ad55" if _fadj < 0 else "#64748b")
-                    _factor_rows += (
-                        f'<tr>'
-                        f'<td style="color:#94a3b8;font-size:0.78rem;padding:5px 8px 5px 0;white-space:nowrap;">{_fname}</td>'
-                        f'<td style="color:{_fcolor};font-size:0.78rem;font-weight:700;padding:5px 12px 5px 0;white-space:nowrap;">'
-                        f'{_sign}{abs(_fadj):.1f}%</td>'
-                        f'<td style="color:#64748b;font-size:0.74rem;line-height:1.4;">{_flabel}</td>'
-                        f'</tr>'
+                    _bar_pct   = int(abs(_fadj) / _max_factor * 100)
+                    _sign      = "+" if _fadj > 0 else ("−" if _fadj < 0 else "")
+                    _val_color = "#4ade80" if _fadj > 0 else ("#f59e0b" if _fadj < 0 else "#555")
+                    _bar_color = "rgba(74,222,128,0.5)" if _fadj > 0 else "rgba(245,158,11,0.6)"
+                    _factor_bars_html += (
+                        f'<div style="margin-bottom:12px;">'
+                        f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
+                        f'    <span style="color:#888;font-size:0.78rem;font-weight:500;">{_fname}</span>'
+                        f'    <span style="color:{_val_color};font-size:0.84rem;font-weight:700;font-family:\'JetBrains Mono\',monospace;">{_sign}{abs(_fadj):.1f}%</span>'
+                        f'  </div>'
+                        f'  <div style="height:3px;background:#1A1A1A;border-radius:2px;overflow:hidden;">'
+                        f'    <div style="height:100%;width:{_bar_pct}%;background:{_bar_color};border-radius:2px;"></div>'
+                        f'  </div>'
+                        f'</div>'
                     )
 
-                # Unit size estimates
+                # ── Budget grid ────────────────────────────────────────────────
                 _unit_sizes = [("Studio", 42), ("1 BR", 65), ("2 BR", 95), ("3 BR", 130)]
                 _size_rows  = "".join(
                     f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                    f'padding:7px 0;border-bottom:1px solid #1e293b;">'
-                    f'<span style="color:#94a3b8;font-size:0.82rem;">{_ul} (~{_usqm} m²)</span>'
-                    f'<span style="color:#f1f5f9;font-size:0.85rem;font-weight:700;">AED {_tgt * _usqm:,.0f}</span>'
+                    f'padding:8px 0;border-bottom:1px solid #1A1A1A;">'
+                    f'<div>'
+                    f'<span style="color:#888;font-size:0.8rem;font-weight:500;">{_ul}</span>'
+                    f'<span style="color:#444;font-size:0.7rem;margin-left:5px;">~{_usqm}m²</span>'
+                    f'</div>'
+                    f'<span style="color:#F0F0F0;font-size:0.88rem;font-weight:700;'
+                    f'font-family:\'JetBrains Mono\',monospace;">AED {_tgt * _usqm:,.0f}</span>'
                     f'</div>'
                     for _ul, _usqm in _unit_sizes
                 )
 
+                # ── Catalyst callout ───────────────────────────────────────────
                 _yield_note = (
-                    f'<div style="background:#0c1c33;border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;'
-                    f'padding:10px 14px;margin-top:12px;">'
-                    f'<span style="color:#60a5fa;font-size:0.72rem;font-weight:700;text-transform:uppercase;'
-                    f'letter-spacing:0.8px;">📈 Area catalyst</span>'
-                    f'<div style="color:#93c5fd;font-size:0.80rem;line-height:1.7;margin-top:6px;">'
-                    f'{_rec["catalyst_note"]}</div>'
+                    f'<div style="background:#0A1500;border-left:2px solid #4ade8088;'
+                    f'border-radius:0 6px 6px 0;padding:10px 14px;margin-top:16px;">'
+                    f'<div style="color:#4ade80;font-size:0.65rem;font-weight:700;text-transform:uppercase;'
+                    f'letter-spacing:1.1px;margin-bottom:5px;">📈 AREA CATALYST</div>'
+                    f'<div style="color:#88BB88;font-size:0.78rem;line-height:1.6;">{_rec["catalyst_note"]}</div>'
                     f'</div>'
                     if _rec["catalyst_note"] else ""
                 )
 
+                # ── Outlook note ───────────────────────────────────────────────
                 _outlook_note = (
-                    f'<div style="color:#475569;font-size:0.76rem;line-height:1.6;margin-top:10px;">'
-                    f'<span style="color:#64748b;font-weight:600;">5-year outlook: </span>{_rec["five_yr_outlook"]}</div>'
+                    f'<div style="color:#555;font-size:0.74rem;line-height:1.6;margin-top:12px;padding-top:12px;border-top:1px solid #1A1A1A;">'
+                    f'<span style="color:#444;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;font-size:0.66rem;">5-YR: </span>{_rec["five_yr_outlook"]}</div>'
                     if _rec["five_yr_outlook"] else ""
                 )
 
+                # ── Badge chips ────────────────────────────────────────────────
                 _rental_line = (
-                    f'<span style="background:#1e293b;border:1px solid #334155;color:#a78bfa;'
-                    f'padding:3px 10px;border-radius:12px;font-size:0.72rem;font-weight:600;margin-right:6px;">'
-                    f'🏠 ~{_rec["rental_yield_pct"]:.1f}% gross yield</span>'
+                    f'<span style="background:#0A1500;border:1px solid #4ade8044;color:#4ade80;'
+                    f'padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;">'
+                    f'~{_rec["rental_yield_pct"]:.1f}% yield</span>'
                 ) if _rec["rental_yield_pct"] else ""
 
                 _conf_line = (
-                    f'<span style="background:#1e293b;border:1px solid #334155;color:{_rec["conf_color"]};'
-                    f'padding:3px 10px;border-radius:12px;font-size:0.72rem;font-weight:600;">'
-                    f'Data confidence: {_rec["confidence"]} ({_rec["n_transactions"]} txns)</span>'
+                    f'<span style="background:#111;border:1px solid #2A2A2A;color:{_rec["conf_color"]};'
+                    f'padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;">'
+                    f'{_rec["confidence"]} · {_rec["n_transactions"]} txns</span>'
                 )
 
-                _target_html = f"""<html><body style="margin:0;padding:6px 2px;background:#0e1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<div style="background:#0f172a;border-radius:14px;overflow:hidden;border:1px solid #1e293b;box-shadow:0 4px 24px rgba(0,0,0,0.5);">
-  <div style="height:4px;background:linear-gradient(90deg,{_accent},{_accent}55);"></div>
-  <div style="padding:18px 22px 14px;">
+                # ── Full card ──────────────────────────────────────────────────
+                _target_html = f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+  * {{ box-sizing: border-box; }}
+  @media(max-width:420px){{
+    .tgt-card{{padding:14px 14px 14px!important;}}
+    .tgt-hero{{font-size:1.8rem!important;}}
+  }}
+</style></head>
+<body style="margin:0;padding:4px 2px 8px;background:#050505;font-family:'Inter',-apple-system,sans-serif;">
+<div style="background:#0D0D0D;border-radius:12px;overflow:hidden;border:1px solid #1E1E1E;box-shadow:0 8px 40px rgba(0,0,0,0.9);">
+  <div style="height:2px;background:linear-gradient(90deg,{_accent} 0%,{_accent}66 60%,transparent 100%);"></div>
+  <div class="tgt-card" style="padding:20px 20px 18px;">
 
-    <!-- Header row -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-      <div>
-        <div style="color:#64748b;font-size:0.67rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px;">💡 Expert Buy Target — {chosen_project}</div>
-        <div style="color:{_accent};font-size:2.1rem;font-weight:800;letter-spacing:-0.5px;line-height:1;">AED {_tgt:,.0f}<span style="font-size:0.9rem;font-weight:400;color:#64748b;"> /m²</span></div>
-        <div style="color:#64748b;font-size:0.76rem;margin-top:5px;">&#8722;{_tot_pct:.1f}% vs 30-day DLD avg of AED {_avg_30d:,.0f}/m²</div>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-        {_rental_line}
-        {_conf_line}
-      </div>
+    <!-- Section tag -->
+    <div style="color:#444;font-size:0.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">MARKET INTELLIGENCE</div>
+
+    <!-- Project + Price hero -->
+    <div style="color:#666;font-size:0.72rem;font-weight:500;letter-spacing:0.2px;margin-bottom:6px;">{chosen_project}</div>
+    <div class="tgt-hero" style="color:{_accent};font-size:2.5rem;font-weight:800;letter-spacing:-1.5px;line-height:0.9;font-family:'JetBrains Mono',monospace;">AED {_tgt:,.0f}</div>
+    <div style="color:#555;font-size:0.75rem;margin-top:6px;font-family:'JetBrains Mono',monospace;">/m²&nbsp;&nbsp;·&nbsp;&nbsp;&#8722;{_tot_pct:.1f}% vs 30d avg</div>
+
+    <!-- Badges -->
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 20px;">
+      {_rental_line}
+      {_conf_line}
     </div>
 
-    <!-- Factor breakdown table -->
-    <div style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;">How this target was calculated</div>
-    <div style="background:#0a0f1e;border-radius:8px;padding:10px 14px;margin-bottom:14px;overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;">
-        {_factor_rows}
-        <tr style="border-top:1px solid #1e293b;">
-          <td style="color:#f1f5f9;font-size:0.78rem;font-weight:700;padding:8px 8px 4px 0;">Total discount</td>
-          <td style="color:{_accent};font-size:0.85rem;font-weight:800;padding:8px 12px 4px 0;">&#8722;{_tot_pct:.1f}%</td>
-          <td style="color:#64748b;font-size:0.74rem;">Clamped to 2–20% range</td>
-        </tr>
-      </table>
+    <!-- Divider -->
+    <div style="border-top:1px solid #1A1A1A;margin-bottom:16px;"></div>
+
+    <!-- Factor breakdown header -->
+    <div style="color:#444;font-size:0.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">PRICING FACTORS</div>
+
+    <!-- Factor bar rows -->
+    {_factor_bars_html}
+
+    <!-- Total row -->
+    <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #222;padding-top:12px;margin-top:4px;margin-bottom:20px;">
+      <span style="color:#888;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">Target discount</span>
+      <span style="color:{_accent};font-size:1.2rem;font-weight:800;font-family:'JetBrains Mono',monospace;">&#8722;{_tot_pct:.1f}%</span>
     </div>
 
-    <!-- Unit size estimates -->
-    <div style="color:#475569;font-size:0.67rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;">Total budget estimate by unit type</div>
-    <div style="margin-bottom:12px;">{_size_rows}</div>
+    <!-- Budget estimates -->
+    <div style="color:#444;font-size:0.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">BUDGET ESTIMATE</div>
+    {_size_rows}
 
-    <!-- Catalyst note -->
+    <!-- Catalyst -->
     {_yield_note}
 
-    <!-- 5-year outlook -->
+    <!-- Outlook -->
     {_outlook_note}
 
-    <div style="color:#334155;font-size:0.71rem;margin-top:10px;">
-      Based on {_rec["n_transactions"]} DLD transactions in last 30 days.
-      Adjust offer ±5% for floor, view, fit-out quality, and payment terms.
+    <!-- Footnote -->
+    <div style="color:#333;font-size:0.65rem;margin-top:14px;font-family:'JetBrains Mono',monospace;">
+      {_rec["n_transactions"]} DLD txns · last 30d · ±5% for floor/view/fit-out
     </div>
   </div>
-</div></body></html>"""
-                components.html(_target_html, height=620, scrolling=False)
+</div>
+</body></html>"""
 
-                # Price over time chart
-                daily_proj = (
-                    proj_df.groupby("date")["price_sqm"].mean().reset_index()
-                    .rename(columns={"price_sqm": "avg_price"})
-                    .sort_values("date")
-                )
-                fig_proj = go.Figure()
-                fig_proj.add_trace(go.Scatter(
-                    x=daily_proj["date"], y=daily_proj["avg_price"],
-                    name="Avg Price/m²", mode="lines+markers",
-                    line=dict(color="#60a5fa", width=2),
-                    marker=dict(size=6),
-                ))
-                # Add 7-day MA
-                if len(daily_proj) >= 7:
-                    daily_proj["ma7"] = daily_proj["avg_price"].rolling(7, min_periods=3).mean()
+                with _dd_right:
+                    render_html_card(_target_html, height=640, scrolling=True)
+
+                with _dd_left:
+                    # Price over time chart (orange filled)
+                    daily_proj = (
+                        proj_df.groupby("date")["price_sqm"].mean().reset_index()
+                        .rename(columns={"price_sqm": "avg_price"})
+                        .sort_values("date")
+                    )
+                    fig_proj = go.Figure()
                     fig_proj.add_trace(go.Scatter(
-                        x=daily_proj["date"], y=daily_proj["ma7"],
-                        name="7-day MA", mode="lines",
-                        line=dict(color="#f6ad55", width=1.5, dash="dot"),
-                        opacity=0.7,
+                        x=daily_proj["date"], y=daily_proj["avg_price"],
+                        name="Avg Price/m²", mode="lines",
+                        line=dict(color="rgb(255,85,0)", width=2),
+                        fill="tozeroy",
+                        fillcolor="rgba(255,85,0,0.08)",
+                        hovertemplate="<b>%{x|%d %b %Y}</b><br>AED %{y:,.0f}/m²<extra></extra>",
                     ))
-                fig_proj.update_layout(
-                    template=config.CHART_THEME,
-                    height=300,
-                    title=f"{chosen_project} — Price per m² (AED)",
-                    margin=dict(l=0, r=0, t=40, b=0),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=11),
-                    xaxis_title=None,
-                    yaxis_title="AED / m²",
-                )
-                st.plotly_chart(fig_proj, use_container_width=True)
+                    if len(daily_proj) >= 7:
+                        daily_proj["ma7"] = daily_proj["avg_price"].rolling(7, min_periods=3).mean()
+                        fig_proj.add_trace(go.Scatter(
+                            x=daily_proj["date"], y=daily_proj["ma7"],
+                            name="7d MA", mode="lines",
+                            line=dict(color="#FF9955", width=1.5, dash="dot"),
+                            opacity=0.8,
+                        ))
+                    fig_proj.update_layout(
+                        template=config.CHART_THEME,
+                        height=280,
+                        title=dict(text=f"{chosen_project} — Price/m² (AED)", font=dict(color="#777", size=12)),
+                        margin=dict(l=0, r=0, t=36, b=0),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=10, font_color="#777"),
+                        xaxis_title=None,
+                        yaxis_title="AED / m²",
+                        paper_bgcolor="#050505", plot_bgcolor="#0A0A0A",
+                        font=dict(color="#AAA", family="Inter, sans-serif"),
+                        xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+                        yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
+                    )
+                    st.plotly_chart(fig_proj, width="stretch")
 
-                # Building breakdown (if multiple buildings in same project)
-                bldg_counts = proj_df["building_name"].value_counts().reset_index()
-                bldg_counts.columns = ["Building", "Transactions"]
-                if len(bldg_counts) > 1:
-                    st.caption("Transactions by building within this project:")
-                    st.dataframe(bldg_counts, use_container_width=True, hide_index=True)
+                    # Building breakdown
+                    bldg_counts = proj_df["building_name"].value_counts().reset_index()
+                    bldg_counts.columns = ["Building", "Transactions"]
+                    if len(bldg_counts) > 1:
+                        st.caption("Transactions by building:")
+                        st.dataframe(bldg_counts, width="stretch", hide_index=True)
 
-                # Raw transactions table
-                with st.expander(f"📋 Raw DLD transactions ({n_tx} rows)"):
-                    display_df = proj_df[["date", "building_name", "prop_type", "area_sqm", "price_sqm", "actual_worth"]].copy()
-                    display_df.columns = ["Date", "Building", "Type", "Size (m²)", "Price/m² (AED)", "Total (AED)"]
-                    display_df["Date"]          = display_df["Date"].dt.strftime("%d %b %Y")
-                    display_df["Price/m² (AED)"] = display_df["Price/m² (AED)"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
-                    display_df["Total (AED)"]   = display_df["Total (AED)"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—")
-                    display_df["Size (m²)"]     = display_df["Size (m²)"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
-                    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    # ── Tab 4: Settings ───────────────────────────────────────────────────────
-    with tab4:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Signal Thresholds")
-            st.caption("These are the conditions that trigger a buy signal. Edit `config.py` to change them.")
-            st.markdown(f"""
-| Signal | Triggers when… |
-|--------|---------------|
-| 📉 Volume Drop | Volume falls below **{config.VOLUME_DROP_THRESHOLD*100:.0f}%** of its 7-day average |
-| 💰 Price Dip | Price/m² falls below **{config.PRICE_DIP_THRESHOLD*100:.0f}%** of its 30-day average |
-| 🏗️ Supply Surge | Listings exceed **{(1 + config.SUPPLY_SURGE_THRESHOLD)*100:.0f}%** of their 7-day average |
-| 🚨 Strong Buy | Volume Drop **and** Price Dip fire at the same time |
-| Max property price | AED **{config.MAX_PRICE_AED:,}** |
-| Data lookback | **{config.LOOKBACK_DAYS}** days |
-| Alert cooldown | **{config.ALERT_COOLDOWN_HOURS}** hours between repeat alerts |
-            """)
-
-        with col2:
-            st.subheader("Monitored Areas")
-            for area in config.MONITORED_AREAS:
-                st.markdown(f"• {area}")
-
-            st.divider()
-            st.subheader("Alert Credentials")
-            st.caption("Set these in your `.env` file. Never commit `.env` to git.")
-            env_vars = {
-                "SMTP_USER":             "Gmail sender address",
-                "SMTP_PASS":             "Gmail app password",
-                "ALERT_EMAIL_TO":        "Your email address",
-                "TWILIO_ACCOUNT_SID":    "Twilio account SID",
-                "TWILIO_AUTH_TOKEN":     "Twilio auth token",
-                "TWILIO_WHATSAPP_FROM":  "WhatsApp from number",
-                "TWILIO_WHATSAPP_TO":    "Your WhatsApp number",
-            }
-            for var, desc in env_vars.items():
-                status = "✅ Set" if os.getenv(var) else "❌ Not set"
-                st.markdown(f"**{desc}** — {status}  \n`{var}`")
+                    # Raw transactions
+                    with st.expander(f"📋 Raw DLD transactions ({n_tx} rows)"):
+                        display_df = proj_df[["date", "building_name", "prop_type", "area_sqm", "price_sqm", "actual_worth"]].copy()
+                        display_df.columns = ["Date", "Building", "Type", "Size (m²)", "Price/m² (AED)", "Total (AED)"]
+                        display_df["Date"]           = display_df["Date"].dt.strftime("%d %b %Y")
+                        display_df["Price/m² (AED)"] = display_df["Price/m² (AED)"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
+                        display_df["Total (AED)"]    = display_df["Total (AED)"].apply(lambda x: f"AED {x:,.0f}" if pd.notna(x) else "—")
+                        display_df["Size (m²)"]      = display_df["Size (m²)"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
+                        st.dataframe(display_df, width="stretch", hide_index=True)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     st.divider()

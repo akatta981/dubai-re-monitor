@@ -66,6 +66,7 @@ class Transaction(Base):
     building_name = Column(String(256), nullable=True)
     project_name = Column(String(256), nullable=True, index=True)
     master_project = Column(String(256), nullable=True)
+    is_offplan = Column(String(16), nullable=True)        # "Off-plan" / "Ready" / None
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -79,7 +80,7 @@ class DailyMetric(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     metric_date = Column(Date, nullable=False, index=True)
     area_canonical = Column(String(64), nullable=False, index=True)
-    transaction_volume = Column(Integer, default=0)
+    transaction_volume = Column(Integer, nullable=True)   # None = no DLD sales data yet
     avg_price_sqm = Column(Float, nullable=True)
     total_worth = Column(Float, nullable=True)
     median_price = Column(Float, nullable=True)
@@ -143,6 +144,7 @@ def _migrate_transactions() -> None:
         "building_name":  "VARCHAR(256)",
         "project_name":   "VARCHAR(256)",
         "master_project": "VARCHAR(256)",
+        "is_offplan":     "VARCHAR(16)",
     }
     with engine.connect() as conn:
         for col_name, col_type in new_cols.items():
@@ -166,15 +168,41 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def analysis_conditions() -> list:
+    """
+    SQLAlchemy filter conditions for rows used in price/volume analysis:
+    within the AED price cap, plausible price per m² and size, not land plots.
+    All rows stay stored; this only decides what is analysed.
+    """
+    import config
+    from sqlalchemy import func, or_
+    return [
+        Transaction.actual_worth >= config.MIN_PRICE_AED,
+        Transaction.actual_worth <= config.MAX_PRICE_AED,
+        Transaction.price_per_sqm >= config.MIN_PRICE_SQM,
+        Transaction.price_per_sqm <= config.MAX_PRICE_SQM,
+        Transaction.procedure_area >= config.MIN_SIZE_SQM,
+        or_(Transaction.prop_type.is_(None),
+            func.lower(Transaction.prop_type).notin_([t.lower() for t in config.EXCLUDED_PROP_TYPES])),
+    ]
+
+
 def upsert_transaction(session: Session, record: dict) -> bool:
     """
     Insert transaction or skip if already exists.
+    For an existing row, the classification fields (is_offplan, area_canonical)
+    are refreshed, so a re-download applies newer mapping rules and fills in
+    fields that did not exist when the row was first stored.
     Returns True if inserted, False if duplicate.
     """
     tx_id = record.get("transaction_id")
     if tx_id:
         existing = session.query(Transaction).filter_by(transaction_id=tx_id).first()
         if existing:
+            for field in ("is_offplan", "area_canonical"):
+                new = record.get(field)
+                if new and getattr(existing, field) != new:
+                    setattr(existing, field, new)
             return False
 
     worth = record.get("actual_worth")
@@ -197,3 +225,29 @@ def upsert_daily_metric(session: Session, record: dict) -> None:
         existing.updated_at = datetime.utcnow()
     else:
         session.add(DailyMetric(**record))
+
+
+MOCK_ID_PREFIX = "MOCK-"   # transaction IDs written by seed_data.py
+
+
+def db_is_mock_only() -> bool:
+    """True if every transaction in the DB is seeded mock data (or the DB is empty).
+    Rows without a transaction ID count as real data."""
+    from sqlalchemy import or_
+    with get_session() as session:
+        real = (
+            session.query(Transaction.id)
+            .filter(or_(
+                Transaction.transaction_id.is_(None),
+                ~Transaction.transaction_id.like(f"{MOCK_ID_PREFIX}%"),
+            ))
+            .first()
+        )
+    return real is None
+
+
+def purge_all_data() -> None:
+    """Drop and recreate all tables to remove all mock data."""
+    Base.metadata.drop_all(engine)
+    init_db()
+    logger.info("All database tables purged and recreated.")
