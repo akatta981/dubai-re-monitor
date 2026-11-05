@@ -504,6 +504,13 @@ def load_daily_metrics(days: int = 90) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_scorecard():
+    """Buy-decision scorecard (see decision.py)."""
+    from decision import scorecard
+    return scorecard()
+
+
+@st.cache_data(ttl=300)
 def load_anomaly_log(limit: int = 100) -> pd.DataFrame:
     """Load recent anomaly signals."""
     session = SessionLocal()
@@ -954,7 +961,7 @@ def main() -> None:
         )
     with _hdr_r:
         _nav = st.radio(
-            "nav", ["Snapshot", "Trends", "Signals", "Deep-dive"],
+            "nav", ["Snapshot", "Trends", "Signals", "Deep-dive", "Buy decision"],
             horizontal=True, label_visibility="collapsed", key="main_nav",
         )
 
@@ -1516,6 +1523,56 @@ def main() -> None:
                 file_name=f"dubai_signals_{datetime.utcnow().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
             )
+
+    elif _nav == "Buy decision":
+        from decision import ALL, break_even_note
+        _sc, _per = load_scorecard()
+        st.markdown("### Should I buy now? — the evidence on timing")
+        st.caption(
+            f"Compares the last 3 full months (**{_per['label_recent']}**) with the 3 months before "
+            f"(**{_per['label_prior']}**), using DLD sales under AED {config.MAX_PRICE_AED / 1e6:.0f}M "
+            "(land plots and implausible records left out). "
+            "**Resale = ready homes**: off-plan prices are set by developers and can hide what the "
+            "resale market is doing. This is evidence, not financial advice."
+        )
+        if _demo_mode:
+            st.warning("🧪 Demo data loaded — this scorecard is NOT based on real sales.")
+        if _sc.empty:
+            st.info("No sales data yet — sync DLD data first.")
+        else:
+            _fmt = lambda v: "—" if v is None or pd.isna(v) else f"{v:+.1f}%"
+            _show = [a for a in selected_areas if a in _sc.index] + ([ALL] if ALL in _sc.index else [])
+            for _a in _show:
+                _r = _sc.loc[_a]
+                with st.container(border=True):
+                    st.markdown(f"**{_a}** &nbsp;—&nbsp; {_r['lean']}")
+                    _c = st.columns(5)
+                    _c[0].metric("Resale price, 3 mo", _fmt(_r["resale_3m_chg"]),
+                                 help="Change in the median ready-home AED/m², last 3 months vs the 3 before")
+                    _c[1].metric("vs this year's high", _fmt(_r["from_peak"]),
+                                 help="Resale median now vs the highest month this year")
+                    _c[2].metric("Buyer activity", _fmt(_r["activity_chg"]),
+                                 help="Number of sales, last 3 months vs the 3 before")
+                    _c[3].metric("Off-plan premium", _fmt(_r["offplan_premium"]),
+                                 help="How much more off-plan costs per m² than resale right now")
+                    _share = _r["offplan_share"]
+                    _c[4].metric("Off-plan share", "—" if _share is None or pd.isna(_share) else f"{_share:.0f}%",
+                                 help="Share of recent sales that are off-plan = future handovers")
+                    st.caption(f"Confidence: **{_r['confidence']}** "
+                               f"({int(_r['ready_sales_3m'])} resale sales in the last 3 months)")
+                    for _w in _r["why"]:
+                        st.markdown(f"- {_w}")
+            st.info("💡 " + break_even_note())
+            with st.expander("How to read this"):
+                st.markdown(f"""
+- **🔴 Wait — still falling**: resale prices fell more than {abs(config.DECISION_FALLING_PCT):.0f}% in 3 months and the fall isn't clearly slowing. Buying now risks paying more than in a few months.
+- **🟡 Window may be opening**: still falling, but the fall is slowing *and* buyers are returning — often what a bottom looks like.
+- **🟢 Levelling off / Recovering from a dip**: resale is {abs(config.DECISION_DEEP_DROP_PCT):.0f}%+ below this year's high and has stopped falling (or started rising) — discounted prices with the fall behind it.
+- **🟠 Stable / Rising**: no meaningful discount on offer right now.
+- **⚪ Not enough data**: fewer than {config.DECISION_MIN_READY_SALES} resale sales in 3 months.
+
+Thresholds are in `config.py` (`DECISION_*`). Areas with few sales jump around — trust "High" confidence most.
+""")
 
     elif _nav == "Deep-dive":
         # ── Orange filled price-over-time area chart ──────────────────────────

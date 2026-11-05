@@ -118,6 +118,20 @@ DLD_COLUMNS = {
     "master_project": "master_project_en",
 }
 
+# ─── Buy-decision scorecard (decision.py) ──────────────────────────────────────
+# Compares the last 3 full months with the 3 months before, per area.
+DECISION_FALLING_PCT: float = -3.0         # resale 3-month change below this = still falling
+DECISION_RISING_PCT: float = 2.0           # above this = recovering / rising
+DECISION_DEEP_DROP_PCT: float = -8.0       # resale this far below the year's high = meaningful discount
+DECISION_HIGH_OFFPLAN_PREMIUM: float = 15.0  # off-plan this % above resale per m² = off-plan looks expensive
+DECISION_HIGH_OFFPLAN_SHARE: float = 70.0  # % of sales off-plan = many handovers ahead
+DECISION_MIN_READY_SALES: int = 30         # fewer resale sales in 3 months = low confidence
+DECISION_GOOD_READY_SALES: int = 100       # this many = high confidence
+# Rough one-off costs of buying + selling, for the break-even note (general
+# knowledge — verify current rates): DLD transfer fee 4%, agent ~2% each way,
+# registration/trustee/mortgage fees ~1%.
+DECISION_ROUND_TRIP_COST_PCT: float = 9.0
+
 # ─── Scheduler ─────────────────────────────────────────────────────────────────
 FETCH_INTERVAL_MINUTES: int = 15       # How often to refresh data
 ALERT_COOLDOWN_HOURS: int = 6          # Don't re-alert same signal within this window

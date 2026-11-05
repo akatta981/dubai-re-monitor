@@ -195,6 +195,12 @@ Land plots and implausible records (tiny sizes, impossible prices) are left out
 of the analysis — see `EXCLUDED_PROP_TYPES`, `MIN_PRICE_SQM`, `MAX_PRICE_SQM`,
 `MIN_SIZE_SQM` in `config.py`.
 
+**Buy decision scorecard** — dashboard tab "Buy decision" (or `python decision.py`):
+per area, last 3 full months vs the 3 before — resale price trend, fall from this
+year's high, buyer activity, off-plan premium, off-plan share, confidence — and a
+plain-language timing lean. Evidence only, not financial advice; thresholds are the
+`DECISION_*` settings in `config.py`.
+
 `check_data.py` only reads the database. All sales are stored; the AED price cap
 in `config.py` (`MAX_PRICE_AED`) is applied when analysing, so you can change it
 without re-downloading.
