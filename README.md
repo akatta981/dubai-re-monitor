@@ -207,6 +207,19 @@ without re-downloading.
 
 ---
 
+## Run with Docker (optional)
+
+Requires Docker Desktop. Data is kept in a Docker volume between runs.
+
+```powershell
+docker build -t dubai-re-monitor .
+docker run -p 8501:8501 -v dubai-re-data:/app/data --env-file .env dubai-re-monitor
+```
+
+Open http://localhost:8501. (Omit `--env-file .env` if you have no alert settings.)
+
+---
+
 ## Run Tests
 
 ```powershell
