@@ -70,7 +70,13 @@ SIGNAL_MIN_SALES_FOR_PRICE: int = 5        # a price dip needs at least this man
 VOLUME_MA_DAYS: int = 7
 PRICE_MA_DAYS: int = 30
 SUPPLY_MA_DAYS: int = 7
-LOOKBACK_DAYS: int = 90               # How far back to pull DLD data
+LOOKBACK_DAYS: int = 90               # How far back the regular sync pulls DLD data
+METRICS_HISTORY_DAYS: int = 400       # How far back daily metrics are kept for charts
+
+# Market events drawn as dotted vertical lines on the charts, to compare
+# prices before/after. Format: ("YYYY-MM-DD", "label"), e.g.
+#   MARKET_EVENTS = [("2026-02-28", "Middle East war")]
+MARKET_EVENTS: list[tuple[str, str]] = []
 
 # ─── DLD Data Source ──────────────────────────────────────────────────────────
 # Open data JSON API (gateway.dubailand.gov.ae/open-data)
