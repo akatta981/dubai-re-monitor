@@ -168,19 +168,41 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def analysis_conditions() -> list:
+    """
+    SQLAlchemy filter conditions for rows used in price/volume analysis:
+    within the AED price cap, plausible price per m² and size, not land plots.
+    All rows stay stored; this only decides what is analysed.
+    """
+    import config
+    from sqlalchemy import func, or_
+    return [
+        Transaction.actual_worth >= config.MIN_PRICE_AED,
+        Transaction.actual_worth <= config.MAX_PRICE_AED,
+        Transaction.price_per_sqm >= config.MIN_PRICE_SQM,
+        Transaction.price_per_sqm <= config.MAX_PRICE_SQM,
+        Transaction.procedure_area >= config.MIN_SIZE_SQM,
+        or_(Transaction.prop_type.is_(None),
+            func.lower(Transaction.prop_type).notin_([t.lower() for t in config.EXCLUDED_PROP_TYPES])),
+    ]
+
+
 def upsert_transaction(session: Session, record: dict) -> bool:
     """
     Insert transaction or skip if already exists.
-    For an existing row, fields that were empty (e.g. is_offplan on rows
-    downloaded before that column existed) are filled in.
+    For an existing row, the classification fields (is_offplan, area_canonical)
+    are refreshed, so a re-download applies newer mapping rules and fills in
+    fields that did not exist when the row was first stored.
     Returns True if inserted, False if duplicate.
     """
     tx_id = record.get("transaction_id")
     if tx_id:
         existing = session.query(Transaction).filter_by(transaction_id=tx_id).first()
         if existing:
-            if existing.is_offplan is None and record.get("is_offplan"):
-                existing.is_offplan = record["is_offplan"]
+            for field in ("is_offplan", "area_canonical"):
+                new = record.get(field)
+                if new and getattr(existing, field) != new:
+                    setattr(existing, field, new)
             return False
 
     worth = record.get("actual_worth")

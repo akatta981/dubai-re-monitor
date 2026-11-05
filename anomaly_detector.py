@@ -20,7 +20,10 @@ import pandas as pd
 from sqlalchemy import text
 
 import config
-from db import AnomalyLog, DailyMetric, Transaction, get_session, init_db, upsert_daily_metric
+from db import (
+    AnomalyLog, DailyMetric, Transaction,
+    analysis_conditions, get_session, init_db, upsert_daily_metric,
+)
 from data_fetcher import fetch_bayut_supply
 
 logger = logging.getLogger(__name__)
@@ -40,10 +43,9 @@ def aggregate_daily_metrics() -> None:
             session.query(Transaction)
             .filter(Transaction.transaction_date >= cutoff)
             .filter(Transaction.area_canonical.isnot(None))
-            # price cap applied here too, so a change in config.py takes effect
-            # on data that was downloaded under an older cap
-            .filter(Transaction.actual_worth >= config.MIN_PRICE_AED)
-            .filter(Transaction.actual_worth <= config.MAX_PRICE_AED)
+            # price cap + data clean-up (config.py) applied at analysis time,
+            # so changes take effect without re-downloading
+            .filter(*analysis_conditions())
             .all()
         )
 

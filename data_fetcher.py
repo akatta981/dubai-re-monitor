@@ -44,6 +44,18 @@ def canonicalise_area(raw_area: str) -> Optional[str]:
     return None
 
 
+def _project_override(area_canonical: Optional[str], row: dict) -> Optional[str]:
+    """Re-assign a sale to a sub-area (config.PROJECT_AREA_OVERRIDES) by project name."""
+    if area_canonical is None:
+        return None
+    col = config.DLD_API_COLUMNS
+    names = " ".join(str(row.get(col[k]) or "") for k in ("project", "master_project")).lower()
+    for sub_area, rule in config.PROJECT_AREA_OVERRIDES.items():
+        if area_canonical in rule["within"] and any(kw in names for kw in rule["keywords"]):
+            return sub_area
+    return area_canonical
+
+
 # ─── Mock-data clean-up ──────────────────────────────────────────────────────
 
 def purge_mock_data() -> int:
@@ -184,6 +196,7 @@ def _api_row_to_record(row: dict) -> Optional[dict]:
     # ── Canonicalise area ────────────────────────────────────────────────
     raw_area = row.get(col["location"], "")
     area_canonical = canonicalise_area(raw_area)
+    area_canonical = _project_override(area_canonical, row)
     if area_canonical is None:
         return None  # not in our watch list
 

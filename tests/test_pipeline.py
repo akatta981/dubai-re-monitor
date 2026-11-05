@@ -272,3 +272,43 @@ def test_analysis_excludes_sales_above_cap(memory_db):
     with db.get_session() as s:
         m = s.query(db.DailyMetric).one()
         assert m.transaction_volume == 2 and m.avg_price_sqm == pytest.approx(12_500)
+
+
+# ─── Analysis clean-up and sub-area mapping ──────────────────────────────────
+
+def test_analysis_leaves_out_land_and_bad_values(memory_db):
+    from anomaly_detector import aggregate_daily_metrics
+    good = {"actual_worth": 1_200_000.0, "procedure_area": 100.0, "prop_type": "Unit"}
+    variants = [good,
+                {**good, "prop_type": "Land"},                      # land plot
+                {**good, "procedure_area": 10.0},                   # size < 20 m²
+                {**good, "actual_worth": 1_000_000.0, "procedure_area": 900.0}]  # < AED 2,000/m²
+    with db.get_session() as s:
+        for i, v in enumerate(variants):
+            db.upsert_transaction(s, {"transaction_id": f"L{i}", "transaction_date": date.today(),
+                                      "area_canonical": "Dubai Marina", **v})
+    aggregate_daily_metrics()
+    with db.get_session() as s:
+        assert s.query(db.DailyMetric).one().transaction_volume == 1
+
+
+def test_damac_riverside_mapped_inside_dip2():
+    from data_fetcher import _api_row_to_record
+    rec = _api_row_to_record(_api_row(AREA_EN="Dubai Investment Park Second",
+                                      PROJECT_EN="DAMAC Riverside Views - Marine 1"))
+    assert rec["area_canonical"] == "DAMAC Riverside"
+    rec = _api_row_to_record(_api_row(AREA_EN="Dubai Investment Park Second", PROJECT_EN="Expo Village"))
+    assert rec["area_canonical"] == "Dubai Investment Park 2"
+    # "riverside" outside DIP 2 must not be re-assigned
+    rec = _api_row_to_record(_api_row(AREA_EN="Marsa Dubai", PROJECT_EN="Riverside Tower"))
+    assert rec["area_canonical"] == "Dubai Marina"
+
+
+def test_redownload_refreshes_area(memory_db):
+    base = {"transaction_id": "Z1", "transaction_date": date.today(), "actual_worth": 1e6, "procedure_area": 80.0}
+    with db.get_session() as s:
+        db.upsert_transaction(s, {**base, "area_canonical": "Dubai Investment Park 2"})
+    with db.get_session() as s:
+        db.upsert_transaction(s, {**base, "area_canonical": "DAMAC Riverside"})
+    with db.get_session() as s:
+        assert s.query(db.Transaction).one().area_canonical == "DAMAC Riverside"
