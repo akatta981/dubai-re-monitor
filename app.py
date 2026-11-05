@@ -549,6 +549,8 @@ def load_2025_avg_price(year: int | None = None) -> dict[str, float]:
             .filter(
                 Transaction.transaction_date >= date(year, 1, 1),
                 Transaction.transaction_date <= date(year, 12, 31),
+                Transaction.actual_worth >= config.MIN_PRICE_AED,
+                Transaction.actual_worth <= config.MAX_PRICE_AED,
                 Transaction.price_per_sqm.isnot(None),
             )
             .group_by(Transaction.area_canonical)
@@ -598,6 +600,8 @@ def load_project_transactions(project: str, days: int = 90) -> pd.DataFrame:
             .filter(
                 Transaction.project_name == project,
                 Transaction.transaction_date >= cutoff,
+                Transaction.actual_worth >= config.MIN_PRICE_AED,
+                Transaction.actual_worth <= config.MAX_PRICE_AED,
             )
             .order_by(Transaction.transaction_date)
             .all()

@@ -66,6 +66,7 @@ class Transaction(Base):
     building_name = Column(String(256), nullable=True)
     project_name = Column(String(256), nullable=True, index=True)
     master_project = Column(String(256), nullable=True)
+    is_offplan = Column(String(16), nullable=True)        # "Off-plan" / "Ready" / None
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -143,6 +144,7 @@ def _migrate_transactions() -> None:
         "building_name":  "VARCHAR(256)",
         "project_name":   "VARCHAR(256)",
         "master_project": "VARCHAR(256)",
+        "is_offplan":     "VARCHAR(16)",
     }
     with engine.connect() as conn:
         for col_name, col_type in new_cols.items():
@@ -169,12 +171,16 @@ def get_session() -> Generator[Session, None, None]:
 def upsert_transaction(session: Session, record: dict) -> bool:
     """
     Insert transaction or skip if already exists.
+    For an existing row, fields that were empty (e.g. is_offplan on rows
+    downloaded before that column existed) are filled in.
     Returns True if inserted, False if duplicate.
     """
     tx_id = record.get("transaction_id")
     if tx_id:
         existing = session.query(Transaction).filter_by(transaction_id=tx_id).first()
         if existing:
+            if existing.is_offplan is None and record.get("is_offplan"):
+                existing.is_offplan = record["is_offplan"]
             return False
 
     worth = record.get("actual_worth")

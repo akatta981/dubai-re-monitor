@@ -1,7 +1,7 @@
 # 🏙️ Dubai Real Estate Anomaly Monitor
 
 Personal investment research tool. Monitors DLD transaction data + Bayut supply listings
-to detect buy signals for **under AED 3M residential properties** across 12 Dubai areas.
+to detect buy signals for **under AED 2M residential properties** across 12 Dubai areas.
 
 > ⚠️ **Personal research only. Not financial advice.**
 
@@ -169,6 +169,30 @@ mixed. (`seed_data.py` refuses to run on a database with real data unless you ad
 
 ---
 
+## Price History & Data Check
+
+The dashboard sync keeps the last 90 days. For year-on-year comparisons, download
+the history once (from 1 Jan 2025; takes 30+ minutes, run it in a terminal):
+
+```powershell
+python data_fetcher.py --history                 # from 1 Jan 2025 to today
+python data_fetcher.py --since 2024-01-01        # or choose your own start date
+```
+
+Then print a summary (median price per m² per area, 2025 vs since 1 March 2026,
+month by month, ready vs off-plan) and a data health check:
+
+```powershell
+python check_data.py
+python check_data.py --baseline-year 2025 --trend-start 2026-03-01
+```
+
+`check_data.py` only reads the database. All sales are stored; the AED price cap
+in `config.py` (`MAX_PRICE_AED`) is applied when analysing, so you can change it
+without re-downloading.
+
+---
+
 ## Run Tests
 
 ```powershell
@@ -210,7 +234,7 @@ All thresholds are in `config.py`. Key settings:
 VOLUME_DROP_THRESHOLD = 0.80   # Trigger if volume < 80% of 7d MA (increase to 0.85 for more sensitive)
 PRICE_DIP_THRESHOLD   = 0.95   # Trigger if price < 95% of 30d MA
 SUPPLY_SURGE_THRESHOLD = 0.10  # Trigger if listings > 110% of 7d MA
-MAX_PRICE_AED = 3_000_000      # Only flag signals for properties under this
+MAX_PRICE_AED = 2_000_000      # Only flag signals for properties under this
 ```
 
 ---

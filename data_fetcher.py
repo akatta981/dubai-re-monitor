@@ -193,7 +193,11 @@ def _api_row_to_record(row: dict) -> Optional[dict]:
         worth = float(worth) if worth is not None else 0.0
     except (ValueError, TypeError):
         return None
-    if worth < config.MIN_PRICE_AED or worth > config.MAX_PRICE_AED:
+    # Only the floor is applied here (filters out data errors). The AED cap
+    # (config.MAX_PRICE_AED) is applied at analysis time, so the whole market
+    # stays available for comparison and the cap can be changed without
+    # re-downloading.
+    if worth < config.MIN_PRICE_AED:
         return None
 
     # ── Group / usage filter ─────────────────────────────────────────────
@@ -232,7 +236,33 @@ def _api_row_to_record(row: dict) -> Optional[dict]:
         "building_name":    None,  # API has no separate building column
         "project_name":     _str("project"),
         "master_project":   _str("master_project"),
+        "is_offplan":       _offplan_label(row),
     }
+
+
+def _offplan_label(row: dict) -> Optional[str]:
+    """Normalise DLD's off-plan flag to "Off-plan" / "Ready" (None if unknown)."""
+    for key in (config.DLD_API_COLUMNS.get("is_offplan", "IS_OFFPLAN"), "IS_OFFPLAN_EN"):
+        val = row.get(key)
+        if val is None:
+            continue
+        v = str(val).strip().lower().replace("_", "-")
+        if v in ("1", "true", "off-plan", "offplan", "off plan", "yes"):
+            return "Off-plan"
+        if v in ("0", "false", "ready", "existing", "no", "existing properties"):
+            return "Ready"
+    return None
+
+
+def _date_chunks(start: date, end: date, chunk_days: int) -> list[tuple[date, date]]:
+    """Split [start, end] into consecutive inclusive slices of `chunk_days` days."""
+    chunks = []
+    cur = start
+    while cur <= end:
+        stop = min(end, cur + timedelta(days=chunk_days - 1))
+        chunks.append((cur, stop))
+        cur = stop + timedelta(days=1)
+    return chunks
 
 
 def _paginate_area(
@@ -276,13 +306,38 @@ def _paginate_area(
     return all_rows
 
 
-def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> tuple[int, str]:
-    """
-    Fetch residential sales from DLD JSON API for the last `lookback_days`,
-    filter to monitored areas + price range, and upsert into DB.
+def _store_rows(api_rows: list[dict], seen_tx_ids: set[str]) -> int:
+    """Convert + filter + upsert one batch of API rows (one commit). Returns rows inserted."""
+    inserted = 0
+    with get_session() as session:
+        for api_row in api_rows:
+            record = _api_row_to_record(api_row)
+            if record is None:
+                continue
+            tx_id = record.get("transaction_id")
+            if tx_id and tx_id in seen_tx_ids:    # same sale under two area IDs
+                continue
+            if tx_id:
+                seen_tx_ids.add(tx_id)
+            if upsert_transaction(session, record):
+                inserted += 1
+    return inserted
 
-    Queries per-area (server-side filter) so we only download data for
-    our monitored areas — much faster than pulling all of Dubai.
+
+def fetch_dld_transactions(
+    lookback_days: int = config.LOOKBACK_DAYS,
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+    chunk_days: int = config.DLD_FETCH_CHUNK_DAYS,
+) -> tuple[int, str]:
+    """
+    Fetch residential sales from DLD JSON API, filter to monitored areas,
+    and upsert into DB. Date range: `start`..`end` if given, otherwise the
+    last `lookback_days` up to today.
+
+    Queries per area (server-side filter) and in date slices of `chunk_days`
+    so each request stays small — busy areas are not cut short by the
+    per-request page cap.
 
     Returns (new rows inserted, error message — empty string on success).
     """
@@ -297,14 +352,13 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> tuple[i
 
     try:
         # Build date range
-        cutoff = datetime.utcnow().date() - timedelta(days=lookback_days)
-        today = datetime.utcnow().date()
-        from_date = cutoff.strftime("%m/%d/%Y")
-        to_date = today.strftime("%m/%d/%Y")
+        end_d = end or datetime.utcnow().date()
+        start_d = start or (end_d - timedelta(days=lookback_days))
+        chunks = _date_chunks(start_d, end_d, max(1, chunk_days))
 
         logger.info(
-            "Fetching DLD transactions via API: %s to %s (lookback %d days)",
-            from_date, to_date, lookback_days,
+            "Fetching DLD transactions via API: %s to %s (%d date slices)",
+            start_d, end_d, len(chunks),
         )
 
         # Step 1: Resolve our canonical area names → DLD area IDs
@@ -316,30 +370,20 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> tuple[i
         total_downloaded = 0
         seen_tx_ids: set[str] = set()  # avoid dupes across overlapping area IDs
 
-        for canonical, area_ids in area_id_map.items():
-            for area_id in area_ids:
-                area_rows = _paginate_area(http, from_date, to_date, area_id)
-                total_downloaded += len(area_rows)
-
-                if area_rows:
-                    logger.info(
-                        "  %s (ID %s): %d rows", canonical, area_id, len(area_rows),
-                    )
-
-                # Convert + filter + upsert (commit per area to avoid large txn)
-                with get_session() as session:
-                    for api_row in area_rows:
-                        record = _api_row_to_record(api_row)
-                        if record is None:
-                            continue
-                        # Skip if we already processed this tx_id in this run
-                        tx_id = record.get("transaction_id")
-                        if tx_id and tx_id in seen_tx_ids:
-                            continue
-                        if tx_id:
-                            seen_tx_ids.add(tx_id)
-                        if upsert_transaction(session, record):
-                            rows_inserted += 1
+        for i, (c_start, c_end) in enumerate(chunks, 1):
+            from_date = c_start.strftime("%m/%d/%Y")
+            # +1 day overlap: works whether DLD treats the end date as inclusive
+            # or exclusive (duplicates are skipped by transaction ID)
+            to_date = (c_end + timedelta(days=1)).strftime("%m/%d/%Y")
+            if len(chunks) > 1:
+                logger.info("Date slice %d/%d: %s → %s", i, len(chunks), c_start, c_end)
+            for canonical, area_ids in area_id_map.items():
+                for area_id in area_ids:
+                    area_rows = _paginate_area(http, from_date, to_date, area_id)
+                    total_downloaded += len(area_rows)
+                    if area_rows:
+                        logger.info("  %s (ID %s): %d rows", canonical, area_id, len(area_rows))
+                    rows_inserted += _store_rows(area_rows, seen_tx_ids)
 
         logger.info(
             "DLD fetch complete: downloaded %d rows, inserted %d new transactions",
@@ -461,11 +505,30 @@ def fetch_bayut_supply() -> dict[str, Optional[int]]:
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Download DLD sales into the local database.")
+    parser.add_argument("--history", action="store_true",
+                        help=f"one-time download from {config.DLD_HISTORY_START} (or --since) to today")
+    parser.add_argument("--since", help="start date YYYY-MM-DD (implies --history)")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     init_db()
+    if args.history or args.since:
+        since = date.fromisoformat(args.since or config.DLD_HISTORY_START)
+        print(f"Downloading DLD history {since} → today (this can take 30+ minutes)...")
+        n, err = fetch_dld_transactions(start=since, chunk_days=7)
+        print(f"  → {n} new transactions inserted" + (f" (error: {err})" if err else ""))
+        from anomaly_detector import aggregate_daily_metrics, compute_rolling_mas
+        aggregate_daily_metrics()
+        compute_rolling_mas()
+        print("Done. Now run:  python check_data.py")
+        raise SystemExit(0)
+
     print("Fetching DLD transactions...")
     n, err = fetch_dld_transactions()
     print(f"  → {n} new transactions inserted" + (f" (error: {err})" if err else ""))

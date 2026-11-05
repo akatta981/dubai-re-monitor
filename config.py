@@ -30,7 +30,7 @@ MONITORED_AREAS: dict[str, list[str]] = {
 }
 
 # ─── Investment Filter ─────────────────────────────────────────────────────────
-MAX_PRICE_AED: int = 3_000_000          # Only flag signals for properties <= this
+MAX_PRICE_AED: int = 2_000_000          # Only analyse properties <= this (owner target: under AED 2M)
 MIN_PRICE_AED: int = 300_000            # Filter out obvious data errors
 PROPERTY_TYPES: list[str] = ["apartment", "villa", "townhouse"]  # lowercase match
 
@@ -59,6 +59,10 @@ LOOKBACK_DAYS: int = 90               # How far back to pull DLD data
 DLD_API_BASE: str = "https://gateway.dubailand.gov.ae/open-data"
 DLD_API_COMMAND: str = "transactions"          # API endpoint for sales data
 DLD_API_PAGE_SIZE: int = 200                   # rows per API page (max 200)
+DLD_FETCH_CHUNK_DAYS: int = 15                # download in date slices of this many days
+                                               # (keeps each request small so busy areas
+                                               # are not cut short by the page cap)
+DLD_HISTORY_START: str = "2025-01-01"          # default start for: python data_fetcher.py --history
 DLD_API_MAX_PAGES_PER_AREA: int = 10          # safety cap per area (10 × 200 = 2,000 rows)
                                                # lower = faster sync, but busy areas
                                                # (e.g. JVC) may get incomplete volumes
