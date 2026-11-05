@@ -10,6 +10,7 @@ Prints a short report:
   5. Monthly    — month-by-month median price per m² from trend start
   6. Segments   — whole market vs under-cap, ready vs off-plan, off-plan share
   7. Clean-up   — sales left out of the analysis (land, bad sizes/prices)
+  8. Scorecard  — buy-now evidence per area (see decision.py)
 
 Uses the MEDIAN price per m² (the middle sale) — one unusual sale can't swing it.
 Baseline = the baseline year (default 2025) if it is in the database; otherwise
@@ -210,6 +211,10 @@ def main() -> None:
           f"price/m² < {config.MIN_PRICE_SQM:,}: {int((df['psqm'] < config.MIN_PRICE_SQM).sum())}   "
           f"price/m² > {config.MAX_PRICE_SQM:,}: {int((df['psqm'] > config.MAX_PRICE_SQM).sum())}   "
           f"size < {config.MIN_SIZE_SQM:.0f} m²: {int((df['sqm'].fillna(0) < config.MIN_SIZE_SQM).sum())}")
+    # ── 8. Buy-decision scorecard ────────────────────────────────────────────
+    print("\n8)", end="")
+    from decision import print_scorecard
+    print_scorecard()
     print("\nDone. Copy everything above and paste it to Claude.")
 
 
