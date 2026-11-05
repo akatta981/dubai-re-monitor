@@ -107,10 +107,14 @@ def compute_rolling_mas() -> None:
             "area": r.area_canonical,
             "volume": r.transaction_volume,
             "price_sqm": r.avg_price_sqm,
+            "total_worth": r.total_worth,
             "listings": r.bayut_listing_count,
         } for r in rows])
 
     df["date"] = pd.to_datetime(df["date"])
+    # Rows created only by the Bayut scraper (no DLD sales aggregated yet) must
+    # not count as "0 sales" days — that would drag the volume average down.
+    df.loc[df["total_worth"].isna(), "volume"] = None
     updates = []
 
     for area, grp in df.groupby("area"):
@@ -155,7 +159,7 @@ def refresh_supply_data() -> None:
                     metric_date=today,
                     area_canonical=area,
                     bayut_listing_count=count,
-                    transaction_volume=0,
+                    transaction_volume=None,   # unknown until DLD data arrives
                 ))
 
     logger.info("Bayut supply counts updated for %d areas", sum(1 for v in supply.values() if v))
@@ -210,21 +214,27 @@ def detect_anomalies() -> list[dict]:
             "price_sqm_ma30": r.price_sqm_ma30,
             "listings": r.bayut_listing_count,
             "supply_ma7": r.supply_ma7,
+            "has_dld": r.total_worth is not None,
         } for r in latest_rows])
 
-    # Analyse the latest data point per area
+    # Analyse the latest data point per area. DLD sales and Bayut listings can
+    # arrive on different days, so each check uses the newest row that actually
+    # holds that kind of data (a Bayut-only row is not a "zero sales" day).
     for area in df["area"].unique():
         area_df = df[df["area"] == area].sort_values("date", ascending=False)
         if area_df.empty:
             continue
-        latest = area_df.iloc[0]
-        signal_date = latest["date"]
+        dld_rows = area_df[area_df["has_dld"]]
+        supply_rows = area_df[area_df["listings"].notna()]
+        latest = dld_rows.iloc[0] if not dld_rows.empty else None
+        latest_supply = supply_rows.iloc[0] if not supply_rows.empty else None
+        signal_date = latest["date"] if latest is not None else None
         volume_signals: list[str] = []
         price_signals: list[str] = []
 
         # ── Volume Drop Check ─────────────────────────────────────────────────
-        vol = latest["volume"]
-        vol_ma = latest["volume_ma7"]
+        vol = latest["volume"] if latest is not None else None
+        vol_ma = latest["volume_ma7"] if latest is not None else None
         if (
             pd.notna(vol) and pd.notna(vol_ma) and vol_ma > 0
             and vol < config.VOLUME_DROP_THRESHOLD * vol_ma
@@ -245,8 +255,8 @@ def detect_anomalies() -> list[dict]:
                 _log_anomaly(signal)
 
         # ── Price Dip Check ───────────────────────────────────────────────────
-        price = latest["price_sqm"]
-        price_ma = latest["price_sqm_ma30"]
+        price = latest["price_sqm"] if latest is not None else None
+        price_ma = latest["price_sqm_ma30"] if latest is not None else None
         if (
             pd.notna(price) and pd.notna(price_ma) and price_ma > 0
             and price < config.PRICE_DIP_THRESHOLD * price_ma
@@ -267,8 +277,8 @@ def detect_anomalies() -> list[dict]:
                 _log_anomaly(signal)
 
         # ── Supply Surge Check ────────────────────────────────────────────────
-        listings = latest["listings"]
-        supply_ma = latest["supply_ma7"]
+        listings = latest_supply["listings"] if latest_supply is not None else None
+        supply_ma = latest_supply["supply_ma7"] if latest_supply is not None else None
         if (
             pd.notna(listings) and pd.notna(supply_ma) and supply_ma > 0
             and listings > (1 + config.SUPPLY_SURGE_THRESHOLD) * supply_ma
@@ -277,11 +287,11 @@ def detect_anomalies() -> list[dict]:
             signal = {
                 "area": area,
                 "signal_type": "SUPPLY_SURGE",
-                "signal_date": signal_date,
+                "signal_date": latest_supply["date"],
                 "signal_value": listings,
                 "baseline_value": supply_ma,
                 "deviation_pct": deviation,
-                "notes": f"Bayut listings {listings} is {deviation:.1f}% above 7-day MA of {supply_ma:.1f}",
+                "notes": f"Bayut listings {listings:.0f} is {deviation:.1f}% above 7-day MA of {supply_ma:.1f}",
             }
             if not _already_alerted(area, "SUPPLY_SURGE"):
                 new_signals.append(signal)

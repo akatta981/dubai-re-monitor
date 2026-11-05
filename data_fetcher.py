@@ -21,7 +21,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import config
-from db import FetchLog, Transaction, get_session, init_db, upsert_transaction
+from db import AnomalyLog, DailyMetric, FetchLog, Transaction, get_session, init_db, upsert_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,32 @@ def canonicalise_area(raw_area: str) -> Optional[str]:
         if any(kw in lower for kw in keywords):
             return canonical
     return None
+
+
+# ─── Mock-data clean-up ──────────────────────────────────────────────────────
+
+MOCK_ID_PREFIX = "MOCK-"   # must match the IDs written by seed_data.py
+
+
+def purge_mock_data() -> int:
+    """
+    Delete seeded mock transactions plus the derived daily metrics and signal
+    log, so demo numbers never get averaged together with real DLD data.
+    Called automatically whenever real DLD rows are inserted.
+    Returns the number of mock transactions removed.
+    """
+    with get_session() as session:
+        n = (
+            session.query(Transaction)
+            .filter(Transaction.transaction_id.like(f"{MOCK_ID_PREFIX}%"))
+            .delete(synchronize_session=False)
+        )
+        if n:
+            session.query(DailyMetric).delete(synchronize_session=False)
+            session.query(AnomalyLog).delete(synchronize_session=False)
+    if n:
+        logger.info("Real DLD data arrived — removed %d mock transactions and derived metrics", n)
+    return n
 
 
 # ─── DLD JSON API Fetcher ────────────────────────────────────────────────────
@@ -112,8 +138,7 @@ def _fetch_dld_page(
         "P_SORT": "",
     }
 
-    import json
-    print(f"DEBUG PAYLOAD: {json.dumps(payload)}")
+    logger.debug("DLD API payload: %s", payload)
 
     resp = http.post(url, json=payload, timeout=30)
     resp.raise_for_status()
@@ -127,9 +152,8 @@ def _fetch_dld_page(
     if rows is None:
         rows = data if isinstance(data, list) else []
         
-    print(f"DEBUG: Fetched area {area_id}. Extracted {len(rows)} rows.")
+    logger.debug("DLD API area %s: %d rows on this page", area_id, len(rows))
 
-        
     # Get total count (DLD usually includes this in every row or as a sibling)
     total = data.get("response", {}).get("total_records")
     if total is None:
@@ -169,12 +193,15 @@ def _api_row_to_record(row: dict) -> Optional[dict]:
         worth = float(worth) if worth is not None else 0.0
     except (ValueError, TypeError):
         return None
-    if worth < config.MIN_PRICE_AED:
+    if worth < config.MIN_PRICE_AED or worth > config.MAX_PRICE_AED:
         return None
 
-    # ── Group filter ─────────────────────────────────────────────────────
+    # ── Group / usage filter ─────────────────────────────────────────────
     # Locally filter to just Sales and Residential since API filters are unreliable
-    if row.get(col["trans_group"]) != "Sales":
+    if str(row.get(col["trans_group"]) or "").strip().lower() != "sales":
+        return None
+    usage = str(row.get(col["usage"]) or "").strip().lower()
+    if usage and usage != "residential":
         return None
 
     # ── Area in sqm ──────────────────────────────────────────────────────
@@ -219,25 +246,32 @@ def _paginate_area(
     skip = 0
     total = None
     pages_fetched = 0
-    max_pages = 2
+    max_pages = config.DLD_API_MAX_PAGES_PER_AREA
 
     while pages_fetched < max_pages:
         page_rows, page_total = _fetch_dld_page(
             http, from_date, to_date, area_id=area_id, skip=skip,
         )
+        pages_fetched += 1
         if not page_rows:
             break
         if total is None:
-            total = page_total
+            total = page_total or 0
         all_rows.extend(page_rows)
         skip += len(page_rows)
         if skip >= total:
             break
+    else:
+        logger.warning(
+            "DLD area %s: stopped after %d pages (%d rows) — raise "
+            "DLD_API_MAX_PAGES_PER_AREA in config.py for complete volumes",
+            area_id, max_pages, len(all_rows),
+        )
 
     return all_rows
 
 
-def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> int:
+def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> tuple[int, str]:
     """
     Fetch residential sales from DLD JSON API for the last `lookback_days`,
     filter to monitored areas + price range, and upsert into DB.
@@ -245,7 +279,7 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> int:
     Queries per-area (server-side filter) so we only download data for
     our monitored areas — much faster than pulling all of Dubai.
 
-    Returns number of new rows inserted.
+    Returns (new rows inserted, error message — empty string on success).
     """
     http = requests.Session()
     http.headers.update({
@@ -306,6 +340,8 @@ def fetch_dld_transactions(lookback_days: int = config.LOOKBACK_DAYS) -> int:
             "DLD fetch complete: downloaded %d rows, inserted %d new transactions",
             total_downloaded, rows_inserted,
         )
+        if rows_inserted:
+            purge_mock_data()
 
     except Exception as e:
         error_msg = str(e)
@@ -424,8 +460,8 @@ if __name__ == "__main__":
     )
     init_db()
     print("Fetching DLD transactions...")
-    n = fetch_dld_transactions()
-    print(f"  → {n} new transactions inserted")
+    n, err = fetch_dld_transactions()
+    print(f"  → {n} new transactions inserted" + (f" (error: {err})" if err else ""))
 
     print("Scraping Bayut supply data...")
     supply = fetch_bayut_supply()
