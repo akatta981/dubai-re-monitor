@@ -664,6 +664,19 @@ def area_signal_status(area: str, anomaly_df: pd.DataFrame) -> str:
     return "ok"
 
 
+# ─── Market event markers (config.MARKET_EVENTS) ──────────────────────────────
+def add_event_lines(fig: go.Figure) -> None:
+    """Draw a dotted vertical line + label for each configured market event."""
+    for _d, _label in getattr(config, "MARKET_EVENTS", []):
+        try:
+            _x = pd.Timestamp(_d)
+        except (ValueError, TypeError):
+            continue
+        fig.add_vline(x=_x.value / 1e6, line_dash="dot", line_color="#FF5500", opacity=0.8)
+        fig.add_annotation(x=_x, y=1, yref="paper", text=_label, showarrow=False,
+                           font=dict(size=10, color="#FF5500"), xanchor="left", yanchor="bottom")
+
+
 # ─── HTML card renderer (works across Streamlit versions) ─────────────────────
 def render_html_card(html: str, height: int, scrolling: bool = False) -> None:
     """Render a self-contained HTML card in an iframe.
@@ -779,7 +792,16 @@ def main() -> None:
 
         # ── TIME HORIZON ──────────────────────────────────────────────────────
         st.markdown('<div class="sec-hdr">TIME HORIZON</div>', unsafe_allow_html=True)
-        lookback = st.slider("Days", 14, 90, 60, label_visibility="collapsed")
+        _today = datetime.utcnow().date()
+        _ytd_label = f"Since 1 Jan {_today.year}"
+        _horizons = {
+            "30 days": 30, "60 days": 60, "90 days": 90, "6 months": 183,
+            _ytd_label: max(14, (_today - _today.replace(month=1, day=1)).days + 1),
+            "1 year": 365,
+        }
+        _h = st.select_slider("Days", options=list(_horizons), value=_ytd_label,
+                              label_visibility="collapsed")
+        lookback = _horizons[_h]
 
         # ── PROJECT FOCUS ──────────────────────────────────────────────────────
         selected_project: str | None = None
@@ -1177,6 +1199,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
+            add_event_lines(fig_vol)
             st.plotly_chart(fig_vol, width="stretch")
 
         with col_r:
@@ -1215,6 +1238,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             )
+            add_event_lines(fig_price)
             st.plotly_chart(fig_price, width="stretch")
 
         if df["listings"].notna().any():
@@ -1237,6 +1261,7 @@ def main() -> None:
                 xaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
                 yaxis=dict(gridcolor="#1A1A1A", linecolor="#222"),
             )
+            add_event_lines(fig_supply)
             st.plotly_chart(fig_supply, width="stretch")
 
     elif _nav == "Signals":
@@ -1633,6 +1658,7 @@ Thresholds are in `config.py` (`DECISION_*`). Areas with few sales jump around �
             xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
             yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
         )
+        add_event_lines(fig_trend)
         st.plotly_chart(fig_trend, width="stretch")
 
         st.divider()
@@ -1932,6 +1958,7 @@ Thresholds are in `config.py` (`DECISION_*`). Areas with few sales jump around �
                         xaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                         yaxis=dict(gridcolor="#1A1A1A", linecolor="#222", zerolinecolor="#222"),
                     )
+                    add_event_lines(fig_proj)
                     st.plotly_chart(fig_proj, width="stretch")
 
                     # Building breakdown

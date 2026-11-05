@@ -36,7 +36,7 @@ def aggregate_daily_metrics() -> None:
     Read raw transactions from DB, group by (date, area),
     compute volume + avg price/sqm, and upsert into daily_metrics.
     """
-    cutoff = datetime.utcnow().date() - timedelta(days=config.LOOKBACK_DAYS)
+    cutoff = datetime.utcnow().date() - timedelta(days=config.METRICS_HISTORY_DAYS)
 
     with get_session() as session:
         rows = (
@@ -94,7 +94,7 @@ def compute_rolling_mas() -> None:
     For each monitored area, compute rolling MAs over daily_metrics
     and write volume_ma7, price_sqm_ma30 back to DB.
     """
-    cutoff = datetime.utcnow().date() - timedelta(days=config.LOOKBACK_DAYS)
+    cutoff = datetime.utcnow().date() - timedelta(days=config.METRICS_HISTORY_DAYS)
 
     with get_session() as session:
         rows = (
